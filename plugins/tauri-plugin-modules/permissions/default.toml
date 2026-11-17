@@ -10,6 +10,7 @@ permissions = [
   "allow-modules-nadeshiko-search",
   "allow-modules-nadeshiko-segment-context",
   "allow-modules-nadeshiko-user-me",
+  "allow-modules-clipboard-read-text",
   "allow-yomitan-import-dictionary",
   "allow-yomitan-list-dictionaries",
   "allow-yomitan-toggle-dictionary",

@@ -6,6 +6,7 @@ const COMMANDS: &[&str] = &[
     "modules_nadeshiko_search",
     "modules_nadeshiko_segment_context",
     "modules_nadeshiko_user_me",
+    "modules_clipboard_read_text",
     "yomitan_import_dictionary",
     "yomitan_list_dictionaries",
     "yomitan_toggle_dictionary",

@@ -605,6 +605,8 @@ CREATE TABLE IF NOT EXISTS kv_store (
 - **QueryParser 単語クリック時の履歴対称性**: 単語クリック時は検索ボックスの全文を保持したままカードを切り替える仕様。ブラウザBack時の `full` 復元との挙動整合に留意する。
 - **Search Window セクションの再編**: ブラウザ拡張用の不要な8項目を非表示化し、`general.stickySearchHeader` / `general.enableWanakana` / `clipboard.enableSearchPageMonitor` を集約。見出し説明文はマニフェストから上書き対応。
 - **Sticky search header のオフセット設計**: デスクトップでは TopBar ピルの高さ、モバイルではモバイルバーとセーフエリアを考慮した sticky `top` オフセットを適用。
+- **クリップボード自動監視（Clipboard Monitor）**: `tauri-plugin-modules` に Windows（`arboard`）および Android（JNI `ClipboardManager`）両対応の `modules_clipboard_read_text` を追加。検索ページ（`/search/`）ではページ内コピーの自己再検索ループ防止、日本語文字含有判定（`[\u3040-\u30ff\u4e00-\u9fff]`）、および 1,000 文字上限（`maximumSearchLength`）切り詰めを適用。ポーリング時のトレースログ肥大化を防ぐため内部直接呼び出しで稼働。
+
 
 
 

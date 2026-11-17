@@ -11,6 +11,7 @@ import {
   nadeshikoSearchDirect,
   nadeshikoSegmentContextDirect,
   nadeshikoUserMeDirect,
+  readClipboardTextDirect,
   selectTorrentFilesDirect,
   streamYouTubeDirect,
   yomitanDeleteDictionaryDirect,
@@ -302,6 +303,64 @@ describe('tauri-bridge modules commands', () => {
       { command: 'plugin:modules|select_torrent_files', args: { id: 't-1', videoIndex: 0 } },
       { command: 'plugin:modules|cancel_torrent', args: { id: 't-1' } },
     ]);
+  });
+
+  it('reads the OS clipboard through plugin:modules', async () => {
+    const calls = installTauri(
+      (command) =>
+        command === 'plugin:modules|modules_clipboard_read_text' ? '  落ちる ' : null,
+    );
+
+    /* Verbatim, not trimmed: deciding what a clipboard sample MEANS is
+       `clipboard-monitor.ts`, and the bridge must not pre-empt it. */
+    await expect(readClipboardTextDirect()).resolves.toBe('  落ちる ');
+    expect(calls).toEqual([
+      {
+        command: 'plugin:modules|modules_clipboard_read_text',
+        args: {},
+      },
+    ]);
+  });
+
+  it('reports an empty or unreadable clipboard as null, never as a rejection', async () => {
+    /* The monitor polls this once a second: a rejection there would be an unhandled
+       rejection per second, and a locked clipboard / a missing plugin is simply a
+       sample with nothing in it. */
+    installTauri(() => '');
+    await expect(readClipboardTextDirect()).resolves.toBeNull();
+
+    installTauri(() => {
+      throw new Error('clipboard busy');
+    });
+    await expect(readClipboardTextDirect()).resolves.toBeNull();
+  });
+
+  it('falls back to the browser clipboard outside Tauri, fail-soft', async () => {
+    delete internals().__TAURI_INTERNALS__;
+    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    try {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        writable: true,
+        value: { readText: () => Promise.resolve('猫') },
+      });
+      await expect(readClipboardTextDirect()).resolves.toBe('猫');
+
+      /* Not a secure context / permission refused: the same null, so the caller
+         needs no runtime check of its own. */
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        writable: true,
+        value: { readText: () => Promise.reject(new Error('denied')) },
+      });
+      await expect(readClipboardTextDirect()).resolves.toBeNull();
+    } finally {
+      if (original === undefined) {
+        Reflect.deleteProperty(navigator, 'clipboard');
+      } else {
+        Object.defineProperty(navigator, 'clipboard', original);
+      }
+    }
   });
 
   it('does not call native modules commands without a Tauri runtime', async () => {

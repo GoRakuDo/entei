@@ -3,12 +3,14 @@
 //! Consolidates all external communication and media/dictionary modules under
 //! a single Tauri plugin (`tauri-plugin-modules`):
 //!
+//! - `clipboard` (`modules_clipboard_read_text`)
 //! - `jimaku` (`modules_jimaku_*`)
 //! - `nadeshiko` (`modules_nadeshiko_*`)
 //! - `yomitan` (`yomitan_*`)
 //! - `torrent` (`add_torrent`, `get_torrent_status`, `select_torrent_files`, `inspect_torrent_tracks`, `cancel_torrent`)
 //! - `ytdlp` (`get_video_info`, `stream_youtube`)
 
+pub mod clipboard;
 pub mod jimaku;
 pub mod nadeshiko;
 pub mod torrent;
@@ -96,6 +98,24 @@ async fn modules_nadeshiko_segment_context(
 #[tauri::command]
 async fn modules_nadeshiko_user_me(api_key: String) -> Result<NadeshikoUserMe, NadeshikoError> {
     nadeshiko::NadeshikoClient::new().user_me(&api_key).await
+}
+
+/// The OS clipboard's plain text, or `None` when there is nothing to search.
+///
+/// The read runs on the blocking pool: Windows' clipboard is a global object
+/// another process may be holding (a retry inside the OS call is already a wait),
+/// and Android has to attach this thread to the JVM. Neither belongs on an async
+/// runtime worker.
+///
+/// `None` covers every kind of "no text" — an empty clipboard, a non-text one, a
+/// locked one, and a desktop build with no clipboard backend at all — so the
+/// caller never has to branch on a failure to keep the search page alive.
+#[tauri::command]
+async fn modules_clipboard_read_text() -> Option<String> {
+    tauri::async_runtime::spawn_blocking(clipboard::read_plain_text)
+        .await
+        .ok()
+        .flatten()
 }
 
 /// Shared, lock-guarded handle to the dictionary-only database connection.
@@ -300,6 +320,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             modules_nadeshiko_search,
             modules_nadeshiko_segment_context,
             modules_nadeshiko_user_me,
+            modules_clipboard_read_text,
             yomitan_import_dictionary,
             yomitan_list_dictionaries,
             yomitan_toggle_dictionary,

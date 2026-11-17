@@ -10,6 +10,9 @@
  *   `_entrySetCurrent`), asserted on plain nodes rather than on generator output
  * - `search-query`: the lookup order, the entry bookkeeping and the five/six
  *   states the results area can be in
+ * - `clipboard-monitor`: what one sample of the OS clipboard means — the baseline
+ *   that is never searched, the blank/unchanged samples that are not queries, and
+ *   the focus gate the Windows/Android clipboard rules impose
  * - `query-parser`: the furigana header — the options it reads, the markup
  *   upstream's own `display.css` styles, and how a click resolves to a lookup
  *
@@ -32,6 +35,15 @@ import {
   markSearchEntries,
   setCurrentEntry,
 } from '@/modules/yomitan/search/search-display';
+import {
+  CLIPBOARD_POLL_INTERVAL_MS,
+  classifyClipboardSample,
+  isSearchPageActive,
+  isTextLookupWorthy,
+  MAXIMUM_SEARCH_LENGTH,
+  normalizeClipboardText,
+  truncateSearchText,
+} from '@/modules/yomitan/search/clipboard-monitor';
 import {
   asSearchMode,
   countSearchEntries,
@@ -417,6 +429,153 @@ describe('search-query — the results area', () => {
     expect(resolveSearchOutcome({ ...ready, searched: true, entries })).toBe(
       'results',
     );
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * Clipboard monitor — the search page following the OS clipboard.
+ *
+ * `clipboard.enableSearchPageMonitor` (Settings → Yomitan → Search window) has
+ * been in this host's tree since the beginning; what is asserted here is the
+ * sampling contract the React island is built on.
+ * ------------------------------------------------------------------------- */
+
+describe('clipboard-monitor — one sample', () => {
+  it('treats the first readable value as a baseline, never as a query', () => {
+    // Copying a word and THEN opening /search/ must not look that word up.
+    expect(classifyClipboardSample(null, '落ちる')).toEqual({ kind: 'baseline' });
+  });
+
+  it('ignores a sample it could not read', () => {
+    // A locked clipboard, a refused permission, or Android's background app: the
+    // monitor keeps polling, and the baseline survives so the next copy is news.
+    expect(classifyClipboardSample(null, null)).toEqual({ kind: 'idle' });
+    expect(classifyClipboardSample('犬', null)).toEqual({ kind: 'idle' });
+  });
+
+  it('searches text that is new since the last accepted sample', () => {
+    expect(classifyClipboardSample('犬', '猫')).toEqual({
+      kind: 'search',
+      query: '猫',
+    });
+  });
+
+  it('is quiet while the clipboard holds the same word (the once-a-second case)', () => {
+    expect(classifyClipboardSample('猫', '猫')).toEqual({ kind: 'idle' });
+  });
+
+  it('does not read a difference in surrounding whitespace as new text', () => {
+    // The clipboard is re-read every second, so an editor that re-copies the same
+    // selection with a newline attached must not re-run the lookup.
+    expect(classifyClipboardSample('猫', '猫 ')).toEqual({ kind: 'idle' });
+    expect(classifyClipboardSample('猫 ', '猫')).toEqual({ kind: 'idle' });
+  });
+
+  it('hands the engine a trimmed query', () => {
+    expect(classifyClipboardSample('犬', '  猫 \n')).toEqual({
+      kind: 'search',
+      query: '猫',
+    });
+  });
+
+  it('refuses a clipboard that was cleared or holds only whitespace', () => {
+    // Clearing the clipboard is not a query, and an empty field is this page's
+    // intro rather than a search for the empty string.
+    expect(classifyClipboardSample('猫', '')).toEqual({ kind: 'idle' });
+    expect(classifyClipboardSample('猫', ' \n ')).toEqual({ kind: 'idle' });
+  });
+});
+
+describe('clipboard-monitor — what is worth a lookup', () => {
+  it('refuses text no dictionary could answer', () => {
+    // Sampling runs once a second, so "look up whatever the clipboard holds"
+    // would cost an engine round trip every time the user copies a URL.
+    expect(
+      classifyClipboardSample('猫', 'https://example.com/very/long/path'),
+    ).toEqual({
+      kind: 'idle',
+    });
+    expect(classifyClipboardSample('猫', 'just some english sentence')).toEqual({
+      kind: 'idle',
+    });
+    expect(classifyClipboardSample('猫', '🎉🎉')).toEqual({ kind: 'idle' });
+  });
+
+  it('still searches Japanese, in any of the three scripts', () => {
+    expect(isTextLookupWorthy('落ちる')).toBe(true);
+    expect(isTextLookupWorthy('カタカナ')).toBe(true);
+    expect(isTextLookupWorthy('漢字')).toBe(true);
+    expect(isTextLookupWorthy('🍣')).toBe(false);
+  });
+
+  it('does not turn the baseline into a skipped search', () => {
+    // Whatever was already on the clipboard when the page opened is remembered
+    // even when it is a URL, so the FIRST Japanese copy after that is a search
+    // rather than a second baseline.
+    expect(classifyClipboardSample(null, 'https://example.com')).toEqual({
+      kind: 'baseline',
+    });
+    expect(
+      classifyClipboardSample(
+        'https://example.com',
+        'https://example.com',
+      ),
+    ).toEqual({ kind: 'idle' });
+  });
+
+  it('caps a runaway clipboard instead of searching all of it', () => {
+    const pasted = `${'あ'.repeat(MAXIMUM_SEARCH_LENGTH)}末尾`;
+    const decision = classifyClipboardSample('犬', pasted);
+    expect(decision).toEqual({
+      kind: 'search',
+      query: 'あ'.repeat(MAXIMUM_SEARCH_LENGTH),
+    });
+  });
+
+  it('is quiet about a long value it has already searched', () => {
+    /* The caller stores what THIS function searched, so a clipboard longer than
+       the cap must compare equal to itself on the next poll: comparing the raw
+       text instead would re-run the same lookup every second, forever. */
+    const pasted = `${'猫'.repeat(MAXIMUM_SEARCH_LENGTH)}`;
+    const decision = classifyClipboardSample('犬', pasted);
+    expect(decision.kind).toBe('search');
+    const stored = decision.kind === 'search' ? decision.query : null;
+    expect(classifyClipboardSample(stored, pasted)).toEqual({ kind: 'idle' });
+  });
+
+  it('normalizes a sample into the one form the caller compares and stores', () => {
+    expect(normalizeClipboardText('  猫 落ちる\n')).toBe('猫 落ちる');
+    expect(normalizeClipboardText(null)).toBe('');
+    expect(normalizeClipboardText('あ'.repeat(MAXIMUM_SEARCH_LENGTH + 5))).toBe(
+      'あ'.repeat(MAXIMUM_SEARCH_LENGTH),
+    );
+  });
+
+  it('never cuts a surrogate pair in half at the cap', () => {
+    // Half a pair is a lone surrogate: JSON cannot carry it, so the lookup would
+    // fail instead of simply being shortened.
+    const head = 'あ'.repeat(MAXIMUM_SEARCH_LENGTH - 1);
+    const rounded = truncateSearchText(`${head}🍣`);
+    expect(rounded).toBe(head);
+    // No high surrogate left without its low half.
+    expect(/[\ud800-\udbff](?![\udc00-\udfff])/.test(rounded)).toBe(false);
+  });
+});
+
+describe('clipboard-monitor — when a sample is allowed', () => {
+  it('samples only while the window is focused AND visible', () => {
+    // Windows and Android both hand the clipboard to the foreground app only, so
+    // a background sample would paste a stranger's clipboard on the way back.
+    expect(isSearchPageActive(true, 'visible')).toBe(true);
+    expect(isSearchPageActive(false, 'visible')).toBe(false);
+    expect(isSearchPageActive(true, 'hidden')).toBe(false);
+  });
+
+  it('polls, because neither platform announces a clipboard change', () => {
+    // A sane upper bound rather than a magic number: one second is what a
+    // copy → alt-tab → read round trip needs to feel immediate.
+    expect(CLIPBOARD_POLL_INTERVAL_MS).toBeGreaterThanOrEqual(250);
+    expect(CLIPBOARD_POLL_INTERVAL_MS).toBeLessThanOrEqual(2000);
   });
 });
 

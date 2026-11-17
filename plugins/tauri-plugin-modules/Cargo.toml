@@ -61,6 +61,24 @@ thiserror = "2"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# OS clipboard TEXT read behind the search page's clipboard monitor
+# (`src/clipboard.rs`). `arboard` covers Windows, Linux and macOS; it has NO
+# Android implementation (its `platform` module exports nothing there and the
+# crate does not compile), so the dependency is target-gated to the desktop
+# platforms and Android talks to `ClipboardManager` over JNI instead.
+#
+# `default-features = false` drops arboard's image half (`image`, extra
+# `windows-sys` GDI features): this host only ever reads plain text, so pulling
+# in a DEFLATE/PNG decoder would be dead weight in every build.
+[target.'cfg(any(windows, target_os = "macos", target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))'.dependencies]
+arboard = { version = "3.6", default-features = false }
+
+# Android clipboard read. `jni` + `ndk-context` are already in the desktop app's
+# graph (Tauri's own Android support), so this adds no new build tooling.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.21", default-features = false }
+ndk-context = "0.1"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "net", "io-util", "rt-multi-thread", "time"] }
 

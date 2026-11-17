@@ -235,6 +235,62 @@ export function nadeshikoUserMeDirect(
 }
 
 /* ---------------------------------------------------------------------------
+ * OS clipboard (native plain-text read)
+ * --------------------------------------------------------------------------
+ * The Yomitan search page's clipboard monitor needs the OS clipboard, and the
+ * webview cannot read it: there is no clipboard-read API in a page that has not
+ * been clicked, and Android 10+ hands `getPrimaryClip()` only to the app that
+ * currently has input focus. So the read is native
+ * (`plugins/tauri-plugin-modules`, `modules_clipboard_read_text`): arboard on the
+ * desktop, `android.content.ClipboardManager` over JNI on Android. The command
+ * takes no arguments and never logs a value (see trace-logger, which records
+ * arguments only) — the clipboard's own text stays out of the journal. It is also
+ * the ONE command that bypasses the trace journal entirely, because the monitor
+ * polls it once a second.
+ *
+ * The browser build has no native half, but it does have
+ * `navigator.clipboard.readText()`; it goes through the same fail-soft contract,
+ * because a monitor that stopped on the first refusal would never sample again.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * The OS clipboard's plain text, or `null` when there is nothing to search.
+ *
+ * Deliberately never rejects: a missing runtime, a refused permission, a locked
+ * clipboard and an empty one are all the same answer, because the caller polls
+ * this on a timer and a rejection there would be an unhandled rejection per
+ * second.
+ */
+export async function readClipboardTextDirect(): Promise<string | null> {
+  if (isTauri()) {
+    try {
+      /* NOT `invokePluginCommand`, and that is deliberate: this is the one command
+         the page POLLS (once a second for as long as /search/ is open), so
+         journalling each call would fill the 24 h trace window with identical
+         clipboard reads — tens of thousands of rows — and push the entries worth
+         reading out of it. The call itself is unchanged; only the trace is skipped.
+         The command takes no arguments and the clipboard's text is never logged. */
+      const invoke = window.__TAURI_INTERNALS__?.invoke;
+      if (typeof invoke !== 'function') return null;
+      const raw = await invoke('plugin:modules|modules_clipboard_read_text', {});
+      return typeof raw === 'string' && raw !== '' ? raw : null;
+    } catch {
+      /* No plugin (an older desktop build) or a rejected command: this sample has
+         nothing, and the next one asks again. */
+      return null;
+    }
+  }
+  if (typeof navigator === 'undefined' || !navigator.clipboard) return null;
+  try {
+    const text = await navigator.clipboard.readText();
+    return typeof text === 'string' && text !== '' ? text : null;
+  } catch {
+    /* Not a secure context, or the user refused clipboard access. */
+    return null;
+  }
+}
+
+/* ---------------------------------------------------------------------------
  * Yomitan dictionaries (native engine)
  * --------------------------------------------------------------------------
  * The dictionary database is Rust: `plugins/tauri-plugin-modules`
