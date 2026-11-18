@@ -107,8 +107,8 @@ const isHome = activePath === '/';
  * scroll, so their pill stays a pure hover reveal).
  *
  * The behavior is app-wide chrome, not a route feature: the pill steps out of
- * the way while the page scrolls DOWN, comes back the moment it scrolls UP, and
- * dwelling the top edge reveals it at any time — the mobile dock's own
+ * the way while the page scrolls DOWN, and comes back only at the very top of the
+ * page or on a dwell of the top edge — the mobile dock's own
  * semantics, on a pointer. This component owns every state (the `--autohide`
  * modifier plus `data-pill-state="closed"`); the marker attribute below only
  * tells `initDesktopPillScrollAutoHide` that there is work to do.
@@ -263,7 +263,7 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
 
   Every other route (.entei-desktop-pill-zone--autohide):
     Sticky at the viewport top, centered pill, visible at rest.
-    Scrolling DOWN hides it, scrolling UP brings it back, and dwelling the
+    Scrolling DOWN hides it (scrolling back UP mid-page does not), and dwelling the
     360px top edge (750ms) or focusing the pill reveals it at any time.
     /settings/ and /search/ re-anchor the same zone `position: fixed` in their
     own sheets (both zero their top padding); every other page keeps the strip's
@@ -1133,13 +1133,18 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
    * component; the players' zone is not, because it has no document scroll and
    * owns its own hover reveal instead.
    *
-   * The semantics are the mobile dock's (see `initMobileDockAutoHide`), because
-   * it is the same chrome to the user: the pill sits out at the top of the page,
-   * hides as soon as the page scrolls DOWN, and returns the moment it scrolls UP.
-   * What it deliberately does NOT copy is the idle timer: this pill has a second
-   * way back — a 750ms dwell on the top edge (the player's own trigger region,
-   * now shared by every route) — and an idle fade would fight it.
-   * Scrolling back to the top (|Y| <= 10px) always opens it.
+   * Unlike the mobile dock, scrolling is only ever a DISMISSAL gesture here:
+   * the pill hides as the page scrolls DOWN, and scrolling back UP mid-page does
+   * NOT bring it back (a small upward correction must never drop navigation on
+   * top of the content the user is reading).
+   *
+   * It has exactly two ways back, plus the keyboard:
+   *   1. the page is scrolled back to the very top (|Y| <= 10px), and
+   *   2. a 750ms dwell on the top edge (the player's own trigger region, now
+   *      shared by every route) — pure CSS on `:hover`, so it needs no JS here.
+   * `:focus-within` keeps working in both states.
+   * What it deliberately does NOT copy from the dock is the idle timer: an idle
+   * fade would fight the dwell reveal.
    *
    * Written as a `data-pill-state` attribute rather than by hiding the pill from
    * here: the closed state belongs with the other two (opacity / transform /
@@ -1157,7 +1162,7 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
 
     /** Sub-pixel jitter must not flip the pill's state. */
     const SCROLL_DELTA_THRESHOLD_PX = 6;
-    /** "At the top of the page": the same epsilon the dock uses. */
+    /** "At the very top of the page": the same epsilon the dock uses. */
     const TOP_EPSILON_PX = 10;
     let lastScrollY = window.scrollY;
 
@@ -1177,15 +1182,26 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
       const currentScrollY = window.scrollY;
       const delta = currentScrollY - lastScrollY;
 
+      /* Only the very top of the page reveals the pill. */
       if (currentScrollY <= TOP_EPSILON_PX) {
         setPillOpen(true);
         lastScrollY = currentScrollY;
         return;
       }
-      if (Math.abs(delta) < SCROLL_DELTA_THRESHOLD_PX) return;
-      setPillOpen(delta < 0);
+      /* Scrolling UP mid-page deliberately keeps the current state: the user is
+         reading, not asking for navigation. Only DOWN dismisses. */
+      if (delta < -SCROLL_DELTA_THRESHOLD_PX) {
+        lastScrollY = currentScrollY;
+        return;
+      }
+      if (delta < SCROLL_DELTA_THRESHOLD_PX) return;
+      setPillOpen(false);
       lastScrollY = currentScrollY;
     }
+
+    /* A reload that restores a mid-page scroll position starts with the pill
+       already dismissed, matching the state the first scroll DOWN would give. */
+    if (window.scrollY > TOP_EPSILON_PX) setPillOpen(false);
 
     let scrollFrameQueued = false;
     function onScrollRaf() {
