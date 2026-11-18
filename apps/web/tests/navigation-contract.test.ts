@@ -148,6 +148,9 @@ function renderTopBarHtml(opts: {
   const { currentPath, showLanguageSelector = true } = opts;
   const activePath = normalisePath(currentPath);
   const isPlayer = activePath === '/player';
+  /** `/search/`: same trigger region, plus the scroll marker attribute. */
+  const isSearchPage = activePath === '/search';
+  const autoHidePill = isPlayer || isSearchPage;
   const isHome = activePath === '/';
   const isModules =
     activePath === '/modules' || activePath.startsWith('/modules/');
@@ -188,9 +191,9 @@ function renderTopBarHtml(opts: {
     const zoneClass = isPlayer
       ? 'entei-desktop-pill-zone entei-desktop-pill-zone--player'
       : 'entei-desktop-pill-zone';
-    html += `<div class="${zoneClass}" data-entei-desktop-nav-zone>`;
+    html += `<div class="${zoneClass}" data-entei-desktop-nav-zone${isSearchPage ? ' data-entei-desktop-pill-auto-hide="scroll"' : ''}>`;
 
-    if (isPlayer) {
+    if (autoHidePill) {
       html += `<div class="entei-desktop-pill-trigger-zone" data-entei-trigger-zone></div>`;
     }
 
@@ -841,6 +844,32 @@ describe('Player trigger zone for hover reveal', () => {
     const html = renderTopBarHtml({ currentPath: '/profile/' });
     const root = parseHtml(html);
     expect(root.querySelector('[data-entei-trigger-zone]')).toBeNull();
+  });
+
+  /* `/search/` shares the reveal region (the pill there also hides on scroll
+     down, so the top edge is its way back) and is the only route whose zone
+     carries the scroll marker `initDesktopPillScrollAutoHide` binds to. */
+  it('Search: trigger zone present and the zone asks for scroll auto-hide', () => {
+    const html = renderTopBarHtml({ currentPath: '/search/' });
+    const root = parseHtml(html);
+    const trigger = root.querySelector('[data-entei-trigger-zone]');
+    expect(trigger?.classList.contains('entei-desktop-pill-trigger-zone')).toBe(
+      true,
+    );
+
+    const zone = root.querySelector('[data-entei-desktop-nav-zone]');
+    expect(
+      zone!.getAttribute('data-entei-desktop-pill-auto-hide'),
+    ).toBe('scroll');
+  });
+
+  it('Player: zone asks for no scroll auto-hide (it has no document scroll)', () => {
+    const html = renderTopBarHtml({ currentPath: '/player/' });
+    const root = parseHtml(html);
+    const zone = root.querySelector('[data-entei-desktop-nav-zone]');
+    expect(
+      zone!.hasAttribute('data-entei-desktop-pill-auto-hide'),
+    ).toBe(false);
   });
 
   it('Player: trigger zone is the only sibling of the pill inside the zone', () => {

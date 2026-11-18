@@ -62,6 +62,25 @@ describe('yomitan-preferences — defaults', () => {
     expect(typeof options.global.dataTransmissionConsentShown).toBe('boolean');
   });
 
+  it('seeds the search window with the sticky header and clipboard monitor on', () => {
+    const options = readYomitanOptions();
+    const profile = activeProfileOptions(options);
+    // Host defaults, not locks: both rows stay editable in the settings tree.
+    expect(profile.general.stickySearchHeader).toBe(true);
+    expect(profile.clipboard.enableSearchPageMonitor).toBe(true);
+    expect(isLockedOptionPath('general.stickySearchHeader')).toBe(false);
+    expect(isLockedOptionPath('clipboard.enableSearchPageMonitor')).toBe(false);
+    // …and a user who turns one off keeps that choice.
+    const next = writeOptionPath(
+      options,
+      'clipboard.enableSearchPageMonitor',
+      false,
+    );
+    expect(
+      activeProfileOptions(next).clipboard.enableSearchPageMonitor,
+    ).toBe(false);
+  });
+
   it('falls back to defaults on corrupted JSON', () => {
     localStorage.setItem(YOMITAN_OPTIONS_KEY, '{not json');
     expect(() => readYomitanOptions()).not.toThrow();
@@ -258,6 +277,83 @@ describe('yomitan-preferences — legacy middle-mouse token', () => {
     expect(readOptionPath(readYomitanOptions(), 'scanning.middleMouse')).toBe(
       false,
     );
+  });
+});
+
+describe('yomitan-preferences — legacy search-page defaults (v2 → v3)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  /** Upstream's own defaults for the two rows this host ships ON. */
+  const legacyProfile = (): ReturnType<typeof createDefaultProfileOptions> => {
+    const base = createDefaultProfileOptions();
+    return {
+      ...base,
+      general: { ...base.general, stickySearchHeader: false },
+      clipboard: { ...base.clipboard, enableSearchPageMonitor: false },
+    };
+  };
+
+  /** Store legacy profiles under `version`, as an older build wrote them. */
+  const storeProfiles = (version: unknown, count = 1): void => {
+    localStorage.setItem(
+      YOMITAN_OPTIONS_KEY,
+      JSON.stringify({
+        ...(typeof version === 'number' ? { version } : {}),
+        options: {
+          ...createDefaultOptions(),
+          profiles: Array.from({ length: count }, () => ({
+            name: 'Default',
+            conditionGroups: [],
+            options: legacyProfile(),
+          })),
+        },
+      }),
+    );
+  };
+
+  it('switches the pinned box and the clipboard monitor on for a v2 payload', () => {
+    storeProfiles(2);
+
+    const profile = activeProfileOptions(readYomitanOptions());
+    // Neither is reachable as a "new default" by a read path that leaves the
+    // stored tree alone, so an existing install is migrated rather than
+    // silently staying on upstream's OFF.
+    expect(profile.general.stickySearchHeader).toBe(true);
+    expect(profile.clipboard.enableSearchPageMonitor).toBe(true);
+    // Still not locks: the Search window section keeps both rows.
+    expect(isLockedOptionPath('general.stickySearchHeader')).toBe(false);
+    expect(isLockedOptionPath('clipboard.enableSearchPageMonitor')).toBe(false);
+  });
+
+  it('migrates every profile, not only the active one', () => {
+    storeProfiles(2, 3);
+    const options = readYomitanOptions();
+    expect(
+      options.profiles.map((profile) => profile.options.general.stickySearchHeader),
+    ).toEqual([true, true, true]);
+    expect(
+      options.profiles.map(
+        (profile) => profile.options.clipboard.enableSearchPageMonitor,
+      ),
+    ).toEqual([true, true, true]);
+  });
+
+  it('leaves a current payload alone — both rows stay the user\'s to turn off', () => {
+    storeProfiles(YOMITAN_OPTIONS_SCHEMA_VERSION);
+
+    const profile = activeProfileOptions(readYomitanOptions());
+    expect(profile.general.stickySearchHeader).toBe(false);
+    expect(profile.clipboard.enableSearchPageMonitor).toBe(false);
+  });
+
+  it('treats a payload with no readable version as pre-fix', () => {
+    storeProfiles(undefined);
+
+    const profile = activeProfileOptions(readYomitanOptions());
+    expect(profile.general.stickySearchHeader).toBe(true);
+    expect(profile.clipboard.enableSearchPageMonitor).toBe(true);
   });
 });
 

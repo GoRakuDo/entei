@@ -428,13 +428,25 @@ export const YOMITAN_OPTIONS_KEY = 'entei.yomitan.options.v1';
  * below it was written while `scanning.middleMouse` still wrote the pre-fix one,
  * so its input cards are rewritten on the way out (see
  * [`migrateLegacyScanInputTokens`]).
+ *
+ * `3` is the payload that carries the two search-page defaults this host turned
+ * on (`general.stickySearchHeader`, `clipboard.enableSearchPageMonitor`): anything
+ * below it was stored by a build that shipped them OFF, and the user of such a
+ * build never had a Search window of their own to turn them on in — so the pair
+ * is switched on once on the way in (see [`migrateLegacySearchDefaults`]).
  */
-export const YOMITAN_OPTIONS_SCHEMA_VERSION = 2;
+export const YOMITAN_OPTIONS_SCHEMA_VERSION = 3;
 
 /**
  * The first payload version that already carries the corrected mouse token.
  */
 const SCAN_MOUSE_TOKEN_FIX_VERSION = 2;
+
+/**
+ * The first payload version that already carries this host's search-page
+ * defaults (the pinned box and the clipboard monitor, both on).
+ */
+const SEARCH_DEFAULTS_VERSION = 3;
 
 /** Debounce window for autosave (one write per burst of edits). */
 const SAVE_DEBOUNCE_MS = 400;
@@ -545,26 +557,69 @@ export function migrateLegacyScanInputTokens(options: Options): Options {
 }
 
 /**
- * Apply the mouse-token migration to a payload written before the fix.
+ * Switch the two search-page defaults on across every profile.
  *
- * Gated on the PERSISTED payload's own version, not on the tree: the same tokens
+ * Both are upstream defaults that this host deliberately ships ON (see
+ * `createHostProfileOptions` for what each one costs), but a tree persisted
+ * before that decision carries upstream's OFF: such a user got the search page
+ * with a box that scrolled away and a clipboard monitor that never ran, and
+ * neither is reachable as a "new default" by any read path that does not rewrite
+ * the tree. This is that rewrite.
+ *
+ * Gated on the PERSISTED payload's version rather than on the tree, so a user who
+ * deliberately turned either one OFF on a current build keeps their choice — only
+ * a payload written before the defaults shipped is switched on, once.
+ */
+function migrateLegacySearchDefaults(options: Options): Options {
+  let changed = false;
+  const profiles = options.profiles.map((profile) => {
+    let next = profile.options;
+    for (const path of [
+      'general.stickySearchHeader',
+      'clipboard.enableSearchPageMonitor',
+    ]) {
+      if (getPathValue(next, path) === true) continue;
+      next = setPathValue(next, path, true) as ProfileOptions;
+    }
+    if (next === profile.options) return profile;
+    changed = true;
+    return { ...profile, options: next };
+  });
+  if (!changed) return options;
+  traceYomitan('settings_search_defaults_migrated', {
+    version: YOMITAN_OPTIONS_SCHEMA_VERSION,
+  });
+  return { ...options, profiles } as Options;
+}
+
+/**
+ * Apply the pre-`3` migrations to a payload written before them.
+ *
+ * Gated on the PERSISTED payload's own version, not on the tree: the same values
  * written by a current build are the user's deliberate choice (the recorder writes
- * `mouse1` for the right button on purpose), so only a pre-fix payload is
- * rewritten. A payload with no readable version is treated as pre-fix —
- * fail-safe, because a card left on the legacy token never scans on the middle
- * button at all.
+ * `mouse1` for the right button on purpose, and the Search window section still
+ * offers both of its rows), so only a pre-fix payload is rewritten. A payload with
+ * no readable version is treated as pre-fix — fail-safe, because a card left on the
+ * legacy token never scans on the middle button at all.
  */
 function migrateLegacyPayload(
   options: Options,
   payloadVersion: unknown,
 ): Options {
+  let migrated = options;
   if (
-    typeof payloadVersion === 'number' &&
-    payloadVersion >= SCAN_MOUSE_TOKEN_FIX_VERSION
+    typeof payloadVersion !== 'number' ||
+    payloadVersion < SCAN_MOUSE_TOKEN_FIX_VERSION
   ) {
-    return options;
+    migrated = migrateLegacyScanInputTokens(migrated);
   }
-  return migrateLegacyScanInputTokens(options);
+  if (
+    typeof payloadVersion !== 'number' ||
+    payloadVersion < SEARCH_DEFAULTS_VERSION
+  ) {
+    migrated = migrateLegacySearchDefaults(migrated);
+  }
+  return migrated;
 }
 
 /**
@@ -580,6 +635,24 @@ function createHostProfileOptions(): ProfileOptions {
   );
   opts = setPathValue(opts, 'scanning.autoHideResults', true);
   opts = setPathValue(opts, 'scanning.hideDelay', 2000);
+  // Search window: Entei ships both of upstream's "off" switches ON, because a
+  // host page has no window of its own to keep the box in and no other way to
+  // start a lookup than typing it.
+  //
+  // - `general.stickySearchHeader` — `/search/` scrolls with the document, so
+  //   without the pinned box the field leaves the screen while the cards scroll
+  //   (see the `[data-sticky-search-header]` rule in search.css).
+  // - `clipboard.enableSearchPageMonitor` — the monitor is what makes copying a
+  //   word in another app and looking it up work at all; its sampling is
+  //   focus-gated, native (a page cannot read the clipboard itself) and only
+  //   ever searches text that holds Japanese, so the cost of leaving it on is one
+  //   read a second while /search/ is the foreground window
+  //   (modules/yomitan/search/clipboard-monitor.ts).
+  //
+  // These are DEFAULTS, not locks: the Search window section still offers both
+  // rows, so a user who wants either off can turn it off.
+  opts = setPathValue(opts, 'general.stickySearchHeader', true);
+  opts = setPathValue(opts, 'clipboard.enableSearchPageMonitor', true);
   return opts as ProfileOptions;
 }
 

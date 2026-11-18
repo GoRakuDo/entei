@@ -48,21 +48,103 @@
 
 /* Floating TopBar pill (desktop only). Anchored `position: fixed` so it is a
    floating overlay that reserves no vertical space — identical to /settings/.
-   Pointer events stay scoped to the pill itself. */
+   Pointer events stay scoped to the pill itself, and to the TopBar's own
+   `.entei-desktop-pill-trigger-zone` child (rendered for this route too): the
+   360px transparent region at the top edge is what the pill reveals itself
+   from, exactly as on the player. */
 @media (min-width: 768px) {
   body[data-page='search'] .entei-desktop-pill-zone {
     position: fixed;
-    top: var(--entei-space-16);
+    /* 0 + PADDING, not `top: var(--entei-space-16)`. TopBar's own trigger child
+       (`.entei-desktop-pill-trigger-zone`) is absolutely positioned at `top: 0`
+       OF THIS ZONE, so insetting the zone itself left the strip between y=0 and
+       y=16px belonging to nothing: a pointer entering at the very top edge of the
+       window never revealed the pill. The inset now lives in the zone's own
+       padding, which puts the pill at exactly the same y while the hover region
+       starts at the viewport edge. */
+    top: 0;
     left: 0;
     right: 0;
     z-index: var(--entei-z-topbar);
     justify-content: center;
-    padding: 0 0 var(--entei-space-4);
+    padding: var(--entei-space-16) 0 var(--entei-space-4);
+    /* The ZONE is never a hit target, or it would swallow clicks across the
+       whole top strip of the page. */
     pointer-events: none;
   }
 
+  /* The trigger child keeps TopBar's own 360px / top-edge geometry; only its
+     height grows by the zone's new top inset, so the hover region runs from y=0
+     down past the pill's bottom edge instead of stopping short of both. */
+  body[data-page='search'] .entei-desktop-pill-trigger-zone {
+    height: calc(var(--entei-topbar-height) + var(--entei-space-16));
+  }
+
+  /* OPEN — the pill at rest, and the state every reveal lands in. */
   body[data-page='search'] .entei-desktop-pill-zone .entei-desktop-pill {
     pointer-events: auto;
+  }
+
+  /* CLOSED — `TopBar.astro` writes `data-pill-state="closed"` while the page is
+     being scrolled DOWN (see `initDesktopPillScrollAutoHide`). The same three
+     properties the player's closed pill uses: it slides up out of the way and
+     stops taking clicks, which is also what lets the sticky search header seal
+     the top edge on its own (search.css above). No `display` / `visibility` /
+     `aria-hidden`: the links stay in the tab order, and `:focus-within` below
+     brings the pill straight back for a keyboard user. */
+  body[data-page='search']
+    .entei-desktop-pill-zone[data-pill-state='closed']
+    .entei-desktop-pill {
+    opacity: 0;
+    transform: translateY(calc(var(--entei-space-2) * -1));
+    pointer-events: none;
+    transition:
+      opacity var(--entei-duration-normal) var(--entei-ease-productive) 200ms,
+      transform var(--entei-duration-normal) var(--entei-ease-productive) 200ms;
+  }
+
+  /* Reveal by DWELLING the top edge (fine pointers only) — the player's own
+     750ms, so a pointer merely crossing the top of the window on its way
+     somewhere else never summons the pill. `:hover` reaches the zone from its
+     trigger-zone child through the DOM tree, which is why the zone itself can
+     stay pointer-events:none. */
+  @media (hover: hover) and (pointer: fine) {
+    body[data-page='search']
+      .entei-desktop-pill-zone[data-pill-state='closed']:hover
+      .entei-desktop-pill {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+      transition:
+        opacity var(--entei-duration-normal) var(--entei-ease-productive) 750ms,
+        transform var(--entei-duration-normal) var(--entei-ease-productive) 750ms;
+    }
+  }
+
+  /* Keyboard reveal: immediate, no dwell delay. */
+  body[data-page='search']
+    .entei-desktop-pill-zone[data-pill-state='closed']:focus-within
+    .entei-desktop-pill {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+    transition:
+      opacity var(--entei-duration-normal) var(--entei-ease-productive),
+      transform var(--entei-duration-normal) var(--entei-ease-productive);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    body[data-page='search']
+      .entei-desktop-pill-zone[data-pill-state='closed']
+      .entei-desktop-pill,
+    body[data-page='search']
+      .entei-desktop-pill-zone[data-pill-state='closed']:hover
+      .entei-desktop-pill,
+    body[data-page='search']
+      .entei-desktop-pill-zone[data-pill-state='closed']:focus-within
+      .entei-desktop-pill {
+      transform: none;
+    }
   }
 }
 
@@ -109,11 +191,18 @@ body[data-page='search'] .entei-main-inner {
   /* Full width because the layout shell no longer caps it, and grown to
      whatever height is left. flex rather than min-height: 100dvh — the shell
      above is a flex column, so growing fills exactly the remaining space and
-     never overflows it into a second scrollbar. Top padding clears the floating
-     TopBar pill so the heading surfaces cleanly below it. */
+     never overflows it into a second scrollbar.
+
+     TOP SPACE HERE IS ONLY THE AIR. The chrome's own height is carried by the
+     search header's top padding (see the header rule below), which is what seals
+     the block once it pins; spending it here as well is what used to add the two
+     together — this rule's 64+24 plus the header's 64+8 — and left 72px of dead
+     space above the heading at rest. What is left puts the heading at
+     16 + (64 + 8) = 88px from the top, the same offset /settings/ gives its H1
+     under the same floating pill. */
   flex: 1 0 auto;
   width: 100%;
-  padding-block-start: calc(var(--entei-topbar-height) + var(--entei-space-24));
+  padding-block-start: var(--entei-space-16);
   padding-block-end: var(--entei-space-64);
 
   color: var(--text-color);
@@ -168,6 +257,20 @@ body[data-page='search'] .entei-main-inner {
      `.search-header` class, which this page's element does not carry. */
   display: flex;
   flex-flow: column nowrap;
+  /* The chrome's height, spent as this block's own top padding at EVERY scroll
+     position rather than only while pinned: padding that arrived WITH the pinned
+     state would yank the box downwards on the frame it sticks, and with the option
+     off there would be no clearance at all. Which chrome — mobile is the sticky
+     TopBar under the notch inset; desktop is the floating pill zone, whose box ends
+     at the 1rem inset + the pill + the zone's 0.25rem, so `--entei-topbar-height +
+     0.5rem` seals just past it. The page frame above adds only the air. */
+  padding-block-start: calc(var(--entei-topbar-height) + var(--entei-safe-top));
+}
+
+@media (min-width: 768px) {
+  .entei-yomitan-search .entei-yomitan-search-header {
+    padding-block-start: calc(var(--entei-topbar-height) + var(--entei-space-8));
+  }
 }
 
 /* The pinned header — `general.stickySearchHeader`, which `YomitanSearchApp` writes
@@ -179,28 +282,37 @@ body[data-page='search'] .entei-main-inner {
    same intent is `position: sticky` here — box and furigana header stay within reach
    while the cards go by.
 
-   TWO OFFSETS, because the two chrome forms differ: the desktop TopBar is a
+   TWO CHROME FORMS, hence two inset declarations (the base rule and the desktop
+   media query above it): the desktop TopBar is a
    `position: fixed` pill (the pill-zone rule at the top of this file) whose box ends
    at 1rem of top inset + 44px pill + 0.25rem of its own padding + the zone's
    0.25rem, while the mobile one is a sticky bar of `--entei-topbar-height` under the
-   notch inset. The header stops below whichever is present instead of sliding
-   beneath it.
+   notch inset. Whichever is present, its height is spent as the block's own top
+   padding so the content starts clear of it.
+
+   ZERO OFFSET, WITH THE CHROME'S HEIGHT AS THE BLOCK'S OWN TOP PADDING — declared
+   on the base rule above, so it is already in place on the frame the block sticks,
+   and identical whether the option is on or off.
+
+   The header used to stop at `top: <chrome height>` instead, which left an UNPAINTED
+   strip between the top of the viewport and the pinned block: while the cards
+   scrolled, their text travelled through that strip and showed above the box
+   (and in the gap beside the desktop pill). Carrying the height as padding
+   instead makes the opaque box start at the very top of the viewport, so the
+   region above the search field is sealed at every scroll position, and the
+   content keeps exactly the offset it had.
 
    OPAQUE on purpose: the cards scroll behind this block, and `--background-color` is
    the surface they are themselves drawn on, so the pinned header reads as the page
    rather than as text over text. `z-index` stays at the layout's content level, below
-   `--entei-z-topbar`, so the pill is never covered. */
+   `--entei-z-topbar`, so the pill is never covered — it floats ON this block, whose
+   desktop top padding (`--entei-topbar-height + 0.5rem`) ends just past the pill's
+   own bottom edge. */
 .entei-yomitan-search .entei-yomitan-search-header[data-sticky-search-header='true'] {
   position: sticky;
-  top: calc(var(--entei-topbar-height) + var(--entei-safe-top));
+  top: 0;
   z-index: var(--entei-z-content);
   background-color: var(--background-color);
-}
-
-@media (min-width: 768px) {
-  .entei-yomitan-search .entei-yomitan-search-header[data-sticky-search-header='true'] {
-    top: calc(var(--entei-topbar-height) + var(--entei-space-8));
-  }
 }
 
 /* The progress bar's own wrapper (display.css): sticky, zero-height, so the bar

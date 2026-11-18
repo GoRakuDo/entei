@@ -97,6 +97,16 @@ const isAudioPlayer = activePath === '/audio-player';
  */
 const isPlayer = isVideoPlayer || isAudioPlayer || playerLike;
 /**
+ * `/search/`: the SAME hover-reveal pill zone, plus scroll awareness — the pill
+ * steps out of the way while the page moves DOWN and comes back while it moves
+ * UP, and dwelling the top edge reveals it at any time (the mobile dock's own
+ * semantics, on a pointer). `search.css` owns those states; all this route needs
+ * from here is the marker attribute and the trigger region.
+ */
+const isSearchPage = activePath === '/search';
+/** Routes whose pill zone carries the transparent top-edge trigger region. */
+const autoHidePill = isPlayer || isSearchPage;
+/**
  * Home (`/`) uses the desktop left sidebar instead of the floating pill, and
  * hides the mobile sticky header entirely (the dock is the only mobile chrome).
  */
@@ -266,8 +276,9 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
         { 'entei-desktop-pill-zone--player': isPlayer },
       ]}
       data-entei-desktop-nav-zone
+      data-entei-desktop-pill-auto-hide={isSearchPage ? 'scroll' : undefined}
     >
-      {isPlayer && (
+      {autoHidePill && (
         <div class="entei-desktop-pill-trigger-zone" data-entei-trigger-zone />
       )}
       <nav
@@ -1045,9 +1056,86 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
     window.addEventListener('scroll', queuedHandleScroll, { passive: true });
   }
 
+  /**
+   * Desktop pill scroll auto-hide (`/search/` only).
+   * ---------------------------------------------------------------------------
+   * The zone is marked `data-entei-desktop-pill-auto-hide="scroll"` by the
+   * component; every other route keeps a pill that never moves.
+   *
+   * The semantics are the mobile dock's (see `initMobileDockAutoHide`), because
+   * it is the same chrome to the user: the pill sits out at the top of the page,
+   * hides as soon as the page scrolls DOWN, and returns the moment it scrolls UP.
+   * What it deliberately does NOT copy is the idle timer: this pill has a second
+   * way back — a 750ms dwell on the top edge (the player's own trigger region,
+   * styled for this route in `search.css`) — and an idle fade would fight it.
+   * Scrolling back to the top (|Y| <= 10px) always opens it.
+   *
+   * Written as a `data-pill-state` attribute rather than by hiding the pill from
+   * here: the closed state belongs with the other two (opacity / transform /
+   * pointer-events, `:focus-within` and reduced-motion included), all of them in
+   * the page's own sheet. Scroll events are rAF-coalesced for the dock's own
+   * reason — a fast flick is dozens of events per frame.
+   */
+  function initDesktopPillScrollAutoHide() {
+    const zone = document.querySelector<HTMLElement>(
+      '[data-entei-desktop-pill-auto-hide="scroll"]',
+    );
+    if (!zone || zone.dataset.pillAutoHideBound) return;
+    zone.dataset.pillAutoHideBound = 'true';
+
+    /** Sub-pixel jitter must not flip the pill's state. */
+    const SCROLL_DELTA_THRESHOLD_PX = 6;
+    /** "At the top of the page": the same epsilon the dock uses. */
+    const TOP_EPSILON_PX = 10;
+    let lastScrollY = window.scrollY;
+
+    function setPillOpen(open: boolean) {
+      if (open) {
+        zone?.removeAttribute('data-pill-state');
+        return;
+      }
+      /* Never while a control inside it holds focus: on this route the pill is
+         the only keyboard path to the destinations. The sheet reveals it on
+         `:focus-within`, but a closed attribute would fight that reveal. */
+      if (zone?.contains(document.activeElement)) return;
+      zone?.setAttribute('data-pill-state', 'closed');
+    }
+
+    function handleScroll() {
+      const currentScrollY = window.scrollY;
+      const delta = currentScrollY - lastScrollY;
+
+      if (currentScrollY <= TOP_EPSILON_PX) {
+        setPillOpen(true);
+        lastScrollY = currentScrollY;
+        return;
+      }
+      if (Math.abs(delta) < SCROLL_DELTA_THRESHOLD_PX) return;
+      setPillOpen(delta < 0);
+      lastScrollY = currentScrollY;
+    }
+
+    let scrollFrameQueued = false;
+    function onScrollRaf() {
+      scrollFrameQueued = false;
+      handleScroll();
+    }
+    function queuedHandleScroll() {
+      if (scrollFrameQueued) return;
+      scrollFrameQueued = true;
+      window.requestAnimationFrame(onScrollRaf);
+    }
+
+    window.addEventListener('scroll', queuedHandleScroll, { passive: true });
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initMobileDockAutoHide);
+    document.addEventListener('DOMContentLoaded', () => {
+      initMobileDockAutoHide();
+      initDesktopPillScrollAutoHide();
+    });
   } else {
     initMobileDockAutoHide();
+    initDesktopPillScrollAutoHide();
   }
 </script>
