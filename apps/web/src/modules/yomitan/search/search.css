@@ -49,9 +49,16 @@
 /* Floating TopBar pill (desktop only). Anchored `position: fixed` so it is a
    floating overlay that reserves no vertical space — identical to /settings/.
    Pointer events stay scoped to the pill itself, and to the TopBar's own
-   `.entei-desktop-pill-trigger-zone` child (rendered for this route too): the
+   `.entei-desktop-pill-trigger-zone` child (rendered on this route too): the
    360px transparent region at the top edge is what the pill reveals itself
-   from, exactly as on the player. */
+   from, exactly as on the player.
+
+   WHAT IS *NOT* HERE ANYMORE. The pill's states — visible at rest, closed while
+   scrolling DOWN, 750ms top-edge dwell reveal, `:focus-within` reveal,
+   reduced-motion — used to be restated for this route and are now owned by
+   `TopBar.astro` for every route it renders on (`.entei-desktop-pill-zone--
+   autohide` + `data-pill-state="closed"`). Only the ANCHORING stays page-local:
+   this page zeroes its own top padding, so the pill has to be an overlay. */
 @media (min-width: 768px) {
   body[data-page='search'] .entei-desktop-pill-zone {
     position: fixed;
@@ -78,73 +85,6 @@
      down past the pill's bottom edge instead of stopping short of both. */
   body[data-page='search'] .entei-desktop-pill-trigger-zone {
     height: calc(var(--entei-topbar-height) + var(--entei-space-16));
-  }
-
-  /* OPEN — the pill at rest, and the state every reveal lands in. */
-  body[data-page='search'] .entei-desktop-pill-zone .entei-desktop-pill {
-    pointer-events: auto;
-  }
-
-  /* CLOSED — `TopBar.astro` writes `data-pill-state="closed"` while the page is
-     being scrolled DOWN (see `initDesktopPillScrollAutoHide`). The same three
-     properties the player's closed pill uses: it slides up out of the way and
-     stops taking clicks, which is also what lets the sticky search header seal
-     the top edge on its own (search.css above). No `display` / `visibility` /
-     `aria-hidden`: the links stay in the tab order, and `:focus-within` below
-     brings the pill straight back for a keyboard user. */
-  body[data-page='search']
-    .entei-desktop-pill-zone[data-pill-state='closed']
-    .entei-desktop-pill {
-    opacity: 0;
-    transform: translateY(calc(var(--entei-space-2) * -1));
-    pointer-events: none;
-    transition:
-      opacity var(--entei-duration-normal) var(--entei-ease-productive) 200ms,
-      transform var(--entei-duration-normal) var(--entei-ease-productive) 200ms;
-  }
-
-  /* Reveal by DWELLING the top edge (fine pointers only) — the player's own
-     750ms, so a pointer merely crossing the top of the window on its way
-     somewhere else never summons the pill. `:hover` reaches the zone from its
-     trigger-zone child through the DOM tree, which is why the zone itself can
-     stay pointer-events:none. */
-  @media (hover: hover) and (pointer: fine) {
-    body[data-page='search']
-      .entei-desktop-pill-zone[data-pill-state='closed']:hover
-      .entei-desktop-pill {
-      opacity: 1;
-      transform: translateY(0);
-      pointer-events: auto;
-      transition:
-        opacity var(--entei-duration-normal) var(--entei-ease-productive) 750ms,
-        transform var(--entei-duration-normal) var(--entei-ease-productive) 750ms;
-    }
-  }
-
-  /* Keyboard reveal: immediate, no dwell delay. */
-  body[data-page='search']
-    .entei-desktop-pill-zone[data-pill-state='closed']:focus-within
-    .entei-desktop-pill {
-    opacity: 1;
-    transform: translateY(0);
-    pointer-events: auto;
-    transition:
-      opacity var(--entei-duration-normal) var(--entei-ease-productive),
-      transform var(--entei-duration-normal) var(--entei-ease-productive);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    body[data-page='search']
-      .entei-desktop-pill-zone[data-pill-state='closed']
-      .entei-desktop-pill,
-    body[data-page='search']
-      .entei-desktop-pill-zone[data-pill-state='closed']:hover
-      .entei-desktop-pill,
-    body[data-page='search']
-      .entei-desktop-pill-zone[data-pill-state='closed']:focus-within
-      .entei-desktop-pill {
-      transform: none;
-    }
   }
 }
 

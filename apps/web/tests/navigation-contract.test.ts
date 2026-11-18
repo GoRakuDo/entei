@@ -137,7 +137,8 @@ const MOBILE_DESTINATIONS = [
  *
  * Home: desktop left sidebar (brand → Home → Profile → Tools → Settings),
  *       no desktop pill zone, no mobile sticky header.
- * Profile/Player: desktop pill zone (Player gets the `--player` modifier).
+ * Every other route: desktop pill zone. Players get the `--player` modifier
+ * (fixed, hover-revealed); all the rest get `--autohide` + the scroll marker.
  * No desktop language combobox anywhere (language lives in Settings).
  * Mobile dock: always rendered.
  */
@@ -148,10 +149,10 @@ function renderTopBarHtml(opts: {
   const { currentPath, showLanguageSelector = true } = opts;
   const activePath = normalisePath(currentPath);
   const isPlayer = activePath === '/player';
-  /** `/search/`: same trigger region, plus the scroll marker attribute. */
-  const isSearchPage = activePath === '/search';
-  const autoHidePill = isPlayer || isSearchPage;
   const isHome = activePath === '/';
+  /** App-wide auto-hide pill: every route but Home (sidebar) and the players. */
+  const isAutoHidePill = !isHome && !isPlayer;
+  const autoHidePill = !isHome;
   const isModules =
     activePath === '/modules' || activePath.startsWith('/modules/');
 
@@ -188,10 +189,11 @@ function renderTopBarHtml(opts: {
     html += `</ul></nav></aside>`;
   } else {
     // Desktop pill zone
-    const zoneClass = isPlayer
-      ? 'entei-desktop-pill-zone entei-desktop-pill-zone--player'
-      : 'entei-desktop-pill-zone';
-    html += `<div class="${zoneClass}" data-entei-desktop-nav-zone${isSearchPage ? ' data-entei-desktop-pill-auto-hide="scroll"' : ''}>`;
+    const zoneClass =
+      'entei-desktop-pill-zone' +
+      (isPlayer ? ' entei-desktop-pill-zone--player' : '') +
+      (isAutoHidePill ? ' entei-desktop-pill-zone--autohide' : '');
+    html += `<div class="${zoneClass}" data-entei-desktop-nav-zone${isAutoHidePill ? ' data-entei-desktop-pill-auto-hide="scroll"' : ''}>`;
 
     if (autoHidePill) {
       html += `<div class="entei-desktop-pill-trigger-zone" data-entei-trigger-zone></div>`;
@@ -339,6 +341,9 @@ describe('Desktop nav surface by route', () => {
     const zone = root.querySelector('[data-entei-desktop-nav-zone]');
     expect(zone).not.toBeNull();
     expect(zone!.classList.contains('entei-desktop-pill-zone--player')).toBe(false);
+    expect(zone!.classList.contains('entei-desktop-pill-zone--autohide')).toBe(
+      true,
+    );
   });
 
   it('Player (/player/): desktop pill <nav> IS present with --player modifier', () => {
@@ -840,15 +845,42 @@ describe('Player trigger zone for hover reveal', () => {
     expect(root.querySelector('[data-entei-trigger-zone]')).toBeNull();
   });
 
-  it('Profile: trigger zone NOT present', () => {
+  it('Profile: trigger zone present (its pill auto-hides too)', () => {
     const html = renderTopBarHtml({ currentPath: '/profile/' });
     const root = parseHtml(html);
-    expect(root.querySelector('[data-entei-trigger-zone]')).toBeNull();
+    expect(
+      root
+        .querySelector('[data-entei-trigger-zone]')
+        ?.classList.contains('entei-desktop-pill-trigger-zone'),
+    ).toBe(true);
   });
 
-  /* `/search/` shares the reveal region (the pill there also hides on scroll
-     down, so the top edge is its way back) and is the only route whose zone
-     carries the scroll marker `initDesktopPillScrollAutoHide` binds to. */
+  /* The auto-hide pill is app-wide chrome, not a /search/ feature: every route
+     that renders the pill (everything but Home, which has the left sidebar, and
+     the players, which have no document scroll) hides it on scroll DOWN and
+     offers the same top-edge reveal region as the player. */
+  it.each(['/profile/', '/settings/', '/search/', '/modules/', '/tracker/'])(
+    '%s: trigger zone present, --autohide modifier and the scroll marker',
+    (route) => {
+      const root = parseHtml(renderTopBarHtml({ currentPath: route }));
+      expect(
+        root
+          .querySelector('[data-entei-trigger-zone]')
+          ?.classList.contains('entei-desktop-pill-trigger-zone'),
+      ).toBe(true);
+
+      const zone = root.querySelector('[data-entei-desktop-nav-zone]');
+      expect(zone!.classList.contains('entei-desktop-pill-zone--autohide')).toBe(
+        true,
+      );
+      expect(zone!.getAttribute('data-entei-desktop-pill-auto-hide')).toBe(
+        'scroll',
+      );
+    },
+  );
+
+  /* `/search/` keeps its own case: no longer the only marked route, but still
+     the one whose page sheet re-anchors the zone `position: fixed`. */
   it('Search: trigger zone present and the zone asks for scroll auto-hide', () => {
     const html = renderTopBarHtml({ currentPath: '/search/' });
     const root = parseHtml(html);
@@ -919,6 +951,61 @@ describe('Player dwell-delay CSS contract', () => {
     expect(focusBlock).not.toBeNull();
     // Must NOT contain 750ms
     expect(focusBlock![1]).not.toMatch(/750ms/);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*  15c. App-wide auto-hide pill CSS contract                                 */
+/* -------------------------------------------------------------------------- */
+/* The auto-hide pill used to be a `/search/` feature with its states restated in
+   that page's sheet. It is now app chrome: `TopBar.astro` owns the states for
+   every route it renders on (`.entei-desktop-pill-zone--autohide`), and the page
+   sheets only keep their ANCHORING. These are contract guards, not a substitute
+   for looking at the rendered page. */
+describe('Auto-hide pill CSS contract (TopBar owns the states)', () => {
+  async function readRepoFile(relative: string): Promise<string> {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    return fs.readFileSync(
+      path.resolve(__dirname, '..', relative),
+      'utf-8',
+    );
+  }
+
+  it('the auto-hide zone sticks to the viewport top (flow-neutral anchoring)', async () => {
+    const css = await readRepoFile('src/components/home/TopBar.astro');
+    expect(css).toMatch(
+      /\.entei-desktop-pill-zone--autohide\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0;/,
+    );
+  });
+
+  it('the closed state is declared once, shared with the player pill', async () => {
+    const css = await readRepoFile('src/components/home/TopBar.astro');
+    const closed = css.match(
+      /\.entei-desktop-pill-zone--player \.entei-desktop-pill,\s*\.entei-desktop-pill-zone--autohide\[data-pill-state='closed'\]\s*\.entei-desktop-pill \{[^}]*\}/,
+    );
+    expect(closed).not.toBeNull();
+    expect(closed![0]).toContain('opacity: 0');
+    expect(closed![0]).toContain('pointer-events: none');
+  });
+
+  it('no page sheet restates the pill states any more', async () => {
+    for (const sheet of [
+      'src/modules/yomitan/search/search.css',
+      'src/styles/settings.css',
+    ]) {
+      const css = await readRepoFile(sheet);
+      // The selector form only: the sheets may still MENTION the attribute in a
+      // comment pointing at the owner, they must not act on it.
+      expect(css).not.toContain("data-pill-state='closed'");
+    }
+  });
+
+  it('/settings/ keeps its floating anchor without the top-edge dead strip', async () => {
+    const css = await readRepoFile('src/styles/settings.css');
+    expect(css).toMatch(
+      /body\[data-page='settings'\] \.entei-desktop-pill-zone \{[^}]*position:\s*fixed;[^}]*top:\s*0;[^}]*padding:\s*var\(--entei-space-16\)/,
+    );
   });
 });
 

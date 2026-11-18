@@ -45,25 +45,31 @@ body[data-page='settings'] .entei-main {
 
 /* Floating TopBar pill (desktop only). Anchored `position: fixed` so it is a
    floating overlay that reserves no vertical space — the shell starts at the
-   very top edge beneath it. The TopBar owns its own top margin via
-   `top: var(--entei-space-16)` (no top padding, so it is exactly 16px from the
-   viewport top), which is what lets the sidebar and content panes drop their
-   own top spacing entirely. Pointer events stay scoped to the pill itself so
-   the transparent zone never blocks clicks on the sidebar / cards beneath. */
+   very top edge beneath it, which is what lets the sidebar and content panes
+   drop their own top spacing entirely. Pointer events stay scoped to the pill
+   itself so the transparent zone never blocks clicks on the sidebar / cards
+   beneath.
+
+   The pill's own 16px inset lives in the zone's PADDING, not in `top:` —
+   `search.css` documents why: TopBar's trigger child is absolutely positioned
+   at `top: 0` OF THE ZONE, so insetting the zone left the strip between y=0 and
+   y=16px belonging to nothing, and a pointer entering at the very top edge of
+   the window never revealed the pill. The pill itself still paints at exactly
+   y=16px, which is what the sidebar / content spacing below is aligned to.
+
+   The pill's STATES (closed while scrolling DOWN, 750ms top-edge dwell reveal,
+   `:focus-within`, reduced-motion) are not restated here either: `TopBar.astro`
+   owns them app-wide through `.entei-desktop-pill-zone--autohide`. */
 @media (min-width: 768px) {
   body[data-page='settings'] .entei-desktop-pill-zone {
     position: fixed;
-    top: var(--entei-space-16);
+    top: 0;
     left: 0;
     right: 0;
     z-index: var(--entei-z-topbar);
     justify-content: center;
-    padding: 0 0 var(--entei-space-4);
+    padding: var(--entei-space-16) 0 var(--entei-space-4);
     pointer-events: none;
-  }
-
-  body[data-page='settings'] .entei-desktop-pill-zone .entei-desktop-pill {
-    pointer-events: auto;
   }
 }
 

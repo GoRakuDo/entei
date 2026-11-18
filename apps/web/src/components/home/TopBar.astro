@@ -97,20 +97,25 @@ const isAudioPlayer = activePath === '/audio-player';
  */
 const isPlayer = isVideoPlayer || isAudioPlayer || playerLike;
 /**
- * `/search/`: the SAME hover-reveal pill zone, plus scroll awareness — the pill
- * steps out of the way while the page moves DOWN and comes back while it moves
- * UP, and dwelling the top edge reveals it at any time (the mobile dock's own
- * semantics, on a pointer). `search.css` owns those states; all this route needs
- * from here is the marker attribute and the trigger region.
- */
-const isSearchPage = activePath === '/search';
-/** Routes whose pill zone carries the transparent top-edge trigger region. */
-const autoHidePill = isPlayer || isSearchPage;
-/**
  * Home (`/`) uses the desktop left sidebar instead of the floating pill, and
  * hides the mobile sticky header entirely (the dock is the only mobile chrome).
  */
 const isHome = activePath === '/';
+/**
+ * AUTO-HIDE pill: every route that shows the floating pill at all — that is
+ * everything EXCEPT Home (left sidebar instead) and the players (no document
+ * scroll, so their pill stays a pure hover reveal).
+ *
+ * The behavior is app-wide chrome, not a route feature: the pill steps out of
+ * the way while the page scrolls DOWN, comes back the moment it scrolls UP, and
+ * dwelling the top edge reveals it at any time — the mobile dock's own
+ * semantics, on a pointer. This component owns every state (the `--autohide`
+ * modifier plus `data-pill-state="closed"`); the marker attribute below only
+ * tells `initDesktopPillScrollAutoHide` that there is work to do.
+ */
+const isAutoHidePill = !isHome && !isPlayer;
+/** Routes whose pill zone carries the transparent top-edge trigger region. */
+const autoHidePill = !isHome;
 /** Settings page: the settings gear link carries aria-current here too, so
  *  the shared `[aria-current='page']` rules light it gold with the active
  *  background just like Home/Profile. */
@@ -256,8 +261,13 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
   DESKTOP (non-Home): pill zone
   Hidden on mobile via CSS (display:none <768px).
 
-  Profile (.entei-desktop-pill-zone):
-    Normal document flow, centered pill, always visible.
+  Every other route (.entei-desktop-pill-zone--autohide):
+    Sticky at the viewport top, centered pill, visible at rest.
+    Scrolling DOWN hides it, scrolling UP brings it back, and dwelling the
+    360px top edge (750ms) or focusing the pill reveals it at any time.
+    /settings/ and /search/ re-anchor the same zone `position: fixed` in their
+    own sheets (both zero their top padding); every other page keeps the strip's
+    height, so nothing shifts when the pill hides.
 
   Player (.entei-desktop-pill-zone--player):
     Fixed at viewport top. Pill hidden by default.
@@ -274,9 +284,10 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
       class:list={[
         'entei-desktop-pill-zone',
         { 'entei-desktop-pill-zone--player': isPlayer },
+        { 'entei-desktop-pill-zone--autohide': isAutoHidePill },
       ]}
       data-entei-desktop-nav-zone
-      data-entei-desktop-pill-auto-hide={isSearchPage ? 'scroll' : undefined}
+      data-entei-desktop-pill-auto-hide={isAutoHidePill ? 'scroll' : undefined}
     >
       {autoHidePill && (
         <div class="entei-desktop-pill-trigger-zone" data-entei-trigger-zone />
@@ -518,7 +529,7 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
     }
   }
 
-  /* --- Home / Profile: normal flow, always visible --- */
+  /* --- Every non-Home route except the players: sticky + scroll auto-hide --- */
   @media (min-width: 768px) {
     .entei-desktop-pill-zone {
       display: flex;
@@ -670,9 +681,15 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
   }
 
   /* ===========================================================================
-   * DESKTOP PLAYER — pill hidden, revealed on hover / focus
+   * DESKTOP HIDDEN-PILL CHOREOGRAPHY — shared by both hidden-pill variants
    * ---------------------------------------------------------------------------
-   * - Fixed at viewport top (above media content).
+   *   --player    the pill STARTS hidden (fixed at the viewport top, above the
+   *               media) and is revealed by dwell / focus: a player has no
+   *               document scroll to react to.
+   *   --autohide  the pill starts VISIBLE and `initDesktopPillScrollAutoHide`
+   *               writes `data-pill-state="closed"` while the page scrolls
+   *               DOWN. Every route but Home (left sidebar) and the players.
+   * Everything from the two positioning rules down is therefore SHARED:
    * - Hover reveal: a transparent trigger-zone child (360px centered) receives
    *   pointer events while the outer zone stays pointer-events:none (so it
    *   never blocks wordmark / controls outside its region). :hover propagates
@@ -700,6 +717,26 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
       pointer-events: none;
     }
 
+    /* Auto-hide variant: STICKY, not fixed. The zone keeps the strip of height
+       it already occupies in the document flow, so a page never jumps when the
+       pill hides — `position: sticky` is flow-neutral, unlike the player's
+       fixed overlay. `top: 0` parks it on the viewport top edge, which is also
+       where the trigger child below sits (no dead strip between the window edge
+       and the hover region: that was the /settings/ bug `search.css` documents).
+       The ROOT owns the scrollport (`html { overflow-y: scroll }`, global.css),
+       so this sticks to the viewport and not to a body-height box.
+       /settings/ and /search/ override the anchoring (fixed + zeroed top
+       padding) in their own sheets, which are more specific and win. */
+    .entei-desktop-pill-zone--autohide {
+      position: sticky;
+      top: 0;
+      z-index: var(--entei-z-topbar);
+      justify-content: center;
+      /* Never a hit target, or the strip across the top of the page would
+         swallow clicks meant for the content now scrolling under it. */
+      pointer-events: none;
+    }
+
     /* Transparent trigger zone: 360px centered at top edge.
        Receives pointer events → :hover propagates to parent zone via DOM. */
     .entei-desktop-pill-trigger-zone {
@@ -713,9 +750,29 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
       /* No visual styling — invisible hover target */
     }
 
-    /* Children hidden by default.
-       200ms dismiss delay on leaving containment. */
-    .entei-desktop-pill-zone--player .entei-desktop-pill {
+    /* While the auto-hide pill is OPEN the trigger child stands down: the pill
+       itself is the pointer target then, and an invisible strip swallowing
+       clicks in front of the page would be pure loss. It only has to be live in
+       the CLOSED state — that is the state it exists to undo. (The player has no
+       open state, so its trigger stays live.) */
+    .entei-desktop-pill-zone--autohide:not([data-pill-state='closed'])
+      .entei-desktop-pill-trigger-zone {
+      pointer-events: none;
+    }
+
+    /* OPEN (auto-hide variant at rest): the zone is click-through, the pill
+       inside it is not. `pointer-events` is inherited, so the pill has to claim
+       it back explicitly. */
+    .entei-desktop-pill-zone--autohide .entei-desktop-pill {
+      pointer-events: auto;
+    }
+
+    /* HIDDEN — the player's resting state, and the auto-hide pill's closed state
+       (200ms dismiss delay on leaving containment / on the scroll that closed
+       it). */
+    .entei-desktop-pill-zone--player .entei-desktop-pill,
+    .entei-desktop-pill-zone--autohide[data-pill-state='closed']
+      .entei-desktop-pill {
       opacity: 0;
       transform: translateY(calc(var(--entei-space-2) * -1));
       pointer-events: none;
@@ -729,7 +786,9 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
         Pointer must dwell for 750ms before reveal begins.
        :hover propagates from trigger-zone child to parent zone. */
     @media (hover: hover) and (pointer: fine) {
-      .entei-desktop-pill-zone--player:hover .entei-desktop-pill {
+      .entei-desktop-pill-zone--player:hover .entei-desktop-pill,
+      .entei-desktop-pill-zone--autohide[data-pill-state='closed']:hover
+        .entei-desktop-pill {
         opacity: 1;
         transform: translateY(0);
         pointer-events: auto;
@@ -742,8 +801,11 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
       }
     }
 
-    /* Keyboard focus-within reveal */
-    .entei-desktop-pill-zone--player:focus-within .entei-desktop-pill {
+    /* Keyboard reveal: immediate, no dwell delay. Both variants, and any state
+       — a keyboard user must never have to chase a pill that scrolled away (the
+       JS also refuses to close while focus sits inside the zone). */
+    .entei-desktop-pill-zone--player:focus-within .entei-desktop-pill,
+    .entei-desktop-pill-zone--autohide:focus-within .entei-desktop-pill {
       opacity: 1;
       transform: translateY(0);
       pointer-events: auto;
@@ -753,13 +815,20 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
         transform var(--entei-duration-normal) var(--entei-ease-productive);
     }
 
-    /* Reduced motion: no transform offset */
+    /* Reduced motion: no transform offset (the closed state's own selector is
+       the longer of the two, so it is repeated here to win). */
     @media (prefers-reduced-motion: reduce) {
-      .entei-desktop-pill-zone--player .entei-desktop-pill {
+      .entei-desktop-pill-zone--player .entei-desktop-pill,
+      .entei-desktop-pill-zone--autohide .entei-desktop-pill,
+      .entei-desktop-pill-zone--autohide[data-pill-state='closed']
+        .entei-desktop-pill {
         transform: none;
       }
       .entei-desktop-pill-zone--player:hover .entei-desktop-pill,
-      .entei-desktop-pill-zone--player:focus-within .entei-desktop-pill {
+      .entei-desktop-pill-zone--player:focus-within .entei-desktop-pill,
+      .entei-desktop-pill-zone--autohide[data-pill-state='closed']:hover
+        .entei-desktop-pill,
+      .entei-desktop-pill-zone--autohide:focus-within .entei-desktop-pill {
         transform: none;
       }
     }
@@ -1057,24 +1126,27 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
   }
 
   /**
-   * Desktop pill scroll auto-hide (`/search/` only).
+   * Desktop pill scroll auto-hide — every route that shows the pill (all of them
+   * except Home and the players).
    * ---------------------------------------------------------------------------
    * The zone is marked `data-entei-desktop-pill-auto-hide="scroll"` by the
-   * component; every other route keeps a pill that never moves.
+   * component; the players' zone is not, because it has no document scroll and
+   * owns its own hover reveal instead.
    *
    * The semantics are the mobile dock's (see `initMobileDockAutoHide`), because
    * it is the same chrome to the user: the pill sits out at the top of the page,
    * hides as soon as the page scrolls DOWN, and returns the moment it scrolls UP.
    * What it deliberately does NOT copy is the idle timer: this pill has a second
    * way back — a 750ms dwell on the top edge (the player's own trigger region,
-   * styled for this route in `search.css`) — and an idle fade would fight it.
+   * now shared by every route) — and an idle fade would fight it.
    * Scrolling back to the top (|Y| <= 10px) always opens it.
    *
    * Written as a `data-pill-state` attribute rather than by hiding the pill from
    * here: the closed state belongs with the other two (opacity / transform /
    * pointer-events, `:focus-within` and reduced-motion included), all of them in
-   * the page's own sheet. Scroll events are rAF-coalesced for the dock's own
-   * reason — a fast flick is dozens of events per frame.
+   * this component's stylesheet, next to the player's identical rules. Scroll
+   * events are rAF-coalesced for the dock's own reason — a fast flick is dozens
+   * of events per frame.
    */
   function initDesktopPillScrollAutoHide() {
     const zone = document.querySelector<HTMLElement>(
@@ -1094,9 +1166,9 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
         zone?.removeAttribute('data-pill-state');
         return;
       }
-      /* Never while a control inside it holds focus: on this route the pill is
-         the only keyboard path to the destinations. The sheet reveals it on
-         `:focus-within`, but a closed attribute would fight that reveal. */
+      /* Never while a control inside it holds focus: the pill is the keyboard
+         path to the destinations, and it always has been. The stylesheet reveals
+         it on `:focus-within`, but a closed attribute would fight that reveal. */
       if (zone?.contains(document.activeElement)) return;
       zone?.setAttribute('data-pill-state', 'closed');
     }
