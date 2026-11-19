@@ -137,7 +137,8 @@ body[data-page='search'] .entei-main-inner {
      search header's top padding (see the header rule below), which is what seals
      the block once it pins; spending it here as well is what used to add the two
      together — this rule's 64+24 plus the header's 64+8 — and left 72px of dead
-     space above the heading at rest. What is left puts the heading at
+     space above the heading at rest. What is left puts the heading (= the first
+     child of the search header, so the header's own clearance is spent above it) at
      16 + (64 + 8) = 88px from the top, the same offset /settings/ gives its H1
      under the same floating pill. */
   flex: 1 0 auto;
@@ -150,16 +151,17 @@ body[data-page='search'] .entei-main-inner {
 }
 
 /* ==========================================================================
- * Header — upstream's `#intro` + `.search-header`
+ * Header — upstream's `.search-header`, with its `#intro` heading as the
+ * first child instead of a block of its own above (see the H1 rule below).
  * ========================================================================== */
 
-/* The heading and the search box go on the SAME axis as the cards.
+/* The header — heading included, since the H1 is its first child — goes on the
+   SAME axis as the cards.
    display.css centres .content-body-inner and leaves everything above it to the
    extension's own window chrome; without this the box would still span the whole
    window while the results stayed in the column. box-sizing is restated because
    the inset below is inside the measured width, and max-width is what applies on
    a narrow window, where a fixed column would otherwise touch both edges. */
-.entei-yomitan-search .entei-yomitan-search-intro,
 .entei-yomitan-search .entei-yomitan-search-header {
   width: var(--content-width);
   max-width: calc(100% - var(--search-page-gutter) * 2);
@@ -167,17 +169,24 @@ body[data-page='search'] .entei-main-inner {
   box-sizing: border-box;
 }
 
-.entei-yomitan-search .entei-yomitan-search-intro {
-  padding-inline: var(--search-horizontal-padding);
-  /* Upstream's `#intro { overflow: hidden }` is kept, but the block is NOT
-     collapsed once a search is on screen: this page searches as the user types,
-     and a heading that vanished on the first keystroke would yank the box up the
-     moment the results start arriving. */
-  overflow: hidden;
-}
+/* The page's own H1, first child of the header block.
 
-.entei-yomitan-search .entei-yomitan-search-intro > h1 {
+   It reads as the FIRST line of that block rather than as a title parked above it:
+   its 0.25em of top padding is the only air above the glyphs (the clearance for
+   the page's chrome is the header's own `padding-block-start`, above), and the
+   hairline under it is what separates it from the search box that follows —
+   upstream's own arrangement in `ext/search.html`, where `#intro` is the FIRST
+   child of `.search-header` (Entei's header now uses that same structure).
+
+   No `overflow: hidden` here (upstream's `#intro` has it): that block existed to be
+   collapsed once a query was on screen, and this page never collapses the title. */
+.entei-yomitan-search .entei-yomitan-search-header > h1 {
   margin: 0;
+  /* The air between the hairline and the search box. What follows the heading is
+     the progress bar's wrapper, which is zero-height
+     (`.top-progress-bar-container`), so without this the box would sit flush
+     against the rule and the two would read as one crowded band. */
+  margin-block-end: 0.5em;
   padding: 0.25em 0 0;
   font-size: 2em;
   line-height: 1.5em;
@@ -192,9 +201,10 @@ body[data-page='search'] .entei-main-inner {
 .entei-yomitan-search .entei-yomitan-search-header {
   padding-inline: var(--search-horizontal-padding);
   /* Upstream stacks this block as a column (`ext/css/display.css`: `.search-header { display:
-     flex; flex-flow: column nowrap }`): progress bar, search box, and now the
-     furigana header underneath. Restated because the vendored rule targets its own
-     `.search-header` class, which this page's element does not carry. */
+     flex; flex-flow: column nowrap }`): the heading, the progress bar, the search
+     box, and the furigana header underneath. Restated because the vendored rule
+     targets its own `.search-header` class, which this page's element does not
+     carry. */
   display: flex;
   flex-flow: column nowrap;
   /* The chrome's height, spent as this block's own top padding at EVERY scroll
@@ -203,7 +213,12 @@ body[data-page='search'] .entei-main-inner {
      off there would be no clearance at all. Which chrome — mobile is the sticky
      TopBar under the notch inset; desktop is the floating pill zone, whose box ends
      at the 1rem inset + the pill + the zone's 0.25rem, so `--entei-topbar-height +
-     0.5rem` seals just past it. The page frame above adds only the air. */
+     0.5rem` seals just past it. The page frame above adds only the air.
+
+     Which reads as what it is — the air above the title, where the pill floats —
+     only because the heading is INSIDE the block. While the title sat in a block
+     of its own above, this same band landed between the title and the box and read
+     as a hole in the page. */
   padding-block-start: calc(var(--entei-topbar-height) + var(--entei-safe-top));
 }
 
@@ -219,8 +234,9 @@ body[data-page='search'] .entei-main-inner {
 
    Upstream means this inside its own window, where `.content-scroll` is the scroller
    and the header simply never moves; this page scrolls with the DOCUMENT, so the
-   same intent is `position: sticky` here — box and furigana header stay within reach
-   while the cards go by.
+   same intent is `position: sticky` here — heading, box and furigana header stay
+   within reach while the cards go by. The heading is inside the block, so it pins
+   with them instead of being left behind at the top of the document.
 
    TWO CHROME FORMS, hence two inset declarations (the base rule and the desktop
    media query above it): the desktop TopBar is a

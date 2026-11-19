@@ -687,14 +687,6 @@ export function YomitanSearchApp() {
       ref={rootRef}
       {...themeAttributes}
     >
-      {/* ALWAYS in the layout. Upstream collapses its intro block once a query
-          is on screen, but this page searches as the user types: a heading that
-          disappeared on the first keystroke would yank the search box up the very
-          moment the results start arriving. A full page keeps its title. */}
-      <div className="entei-yomitan-search-intro">
-        <h1>{SEARCH_COPY.heading}</h1>
-      </div>
-
       <div
         className="entei-yomitan-search-header"
         /* `general.stickySearchHeader`, read once with the rest of the options:
@@ -702,6 +694,25 @@ export function YomitanSearchApp() {
            adds no second source of truth for it. */
         data-sticky-search-header={options.stickyHeader ? 'true' : 'false'}
       >
+        {/* The heading is INSIDE this block, as its first child, and stays there at
+            every scroll position — that is the whole point of it being here rather
+            than in a block of its own above.
+
+            Two things went wrong with the sibling `#intro` div this replaces. Its
+            own box ended at the heading, while this block's `padding-block-start`
+            is the clearance for the page's chrome (the floating desktop pill / the
+            sticky mobile TopBar) — so that whole 72px band was spent BETWEEN the
+            title and the search box and read as dead space. And once
+            `stickySearchHeader` pinned this block, the title stayed at the top of
+            the document while the box scrolled away underneath it.
+
+            Upstream collapses its intro block once a query is on screen; this page
+            keeps the title always (a heading that vanished on the first keystroke
+            would yank the box up as the results arrive), and inside this block the
+            chrome clearance is the space ABOVE the title, which is what the pill
+            occupies. */}
+        <h1>{SEARCH_COPY.heading}</h1>
+
         <div className="top-progress-bar-container" aria-hidden="true">
           <div
             className="progress-bar-indeterminant"
