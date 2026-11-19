@@ -644,9 +644,9 @@ function createHostProfileOptions(): ProfileOptions {
   //   (see the `[data-sticky-search-header]` rule in search.css).
   // - `clipboard.enableSearchPageMonitor` — the monitor is what makes copying a
   //   word in another app and looking it up work at all; its sampling is
-  //   focus-gated, native (a page cannot read the clipboard itself) and only
-  //   ever searches text that holds Japanese, so the cost of leaving it on is one
-  //   read a second while /search/ is the foreground window
+  //   native (a page cannot read the clipboard itself), runs whether or not this
+  //   window has focus, and only ever searches text that holds Japanese, so the
+  //   cost of leaving it on is two reads a second while /search/ is open
   //   (modules/yomitan/search/clipboard-monitor.ts).
   //
   // These are DEFAULTS, not locks: the Search window section still offers both

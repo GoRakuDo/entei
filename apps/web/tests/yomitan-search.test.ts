@@ -38,7 +38,6 @@ import {
 import {
   CLIPBOARD_POLL_INTERVAL_MS,
   classifyClipboardSample,
-  isSearchPageActive,
   isTextLookupWorthy,
   MAXIMUM_SEARCH_LENGTH,
   normalizeClipboardText,
@@ -446,6 +445,18 @@ describe('clipboard-monitor — one sample', () => {
     expect(classifyClipboardSample(null, '落ちる')).toEqual({ kind: 'baseline' });
   });
 
+  it('never spends a real copy as the baseline', () => {
+    /* The host reads the clipboard as the monitor starts and stores THAT as the
+       baseline, so by the time a copy arrives `previous` is a string. This is the
+       regression for "the monitor is one copy behind": a baseline of '' (an empty
+       clipboard at open, or an unreadable one) differs from every lookup-worthy
+       text, so the first copy is a search instead of a second baseline. */
+    expect(classifyClipboardSample('', '落ちる')).toEqual({
+      kind: 'search',
+      query: '落ちる',
+    });
+  });
+
   it('ignores a sample it could not read', () => {
     // A locked clipboard, a refused permission, or Android's background app: the
     // monitor keeps polling, and the baseline survives so the next copy is news.
@@ -488,7 +499,7 @@ describe('clipboard-monitor — one sample', () => {
 
 describe('clipboard-monitor — what is worth a lookup', () => {
   it('refuses text no dictionary could answer', () => {
-    // Sampling runs once a second, so "look up whatever the clipboard holds"
+    // Sampling runs twice a second, so "look up whatever the clipboard holds"
     // would cost an engine round trip every time the user copies a URL.
     expect(
       classifyClipboardSample('猫', 'https://example.com/very/long/path'),
@@ -562,20 +573,13 @@ describe('clipboard-monitor — what is worth a lookup', () => {
   });
 });
 
-describe('clipboard-monitor — when a sample is allowed', () => {
-  it('samples only while the window is focused AND visible', () => {
-    // Windows and Android both hand the clipboard to the foreground app only, so
-    // a background sample would paste a stranger's clipboard on the way back.
-    expect(isSearchPageActive(true, 'visible')).toBe(true);
-    expect(isSearchPageActive(false, 'visible')).toBe(false);
-    expect(isSearchPageActive(true, 'hidden')).toBe(false);
-  });
-
+describe('clipboard-monitor — when a sample is taken', () => {
   it('polls, because neither platform announces a clipboard change', () => {
-    // A sane upper bound rather than a magic number: one second is what a
-    // copy → alt-tab → read round trip needs to feel immediate.
+    /* Copying in ANOTHER app is the whole point, and the page has no focus while
+       that happens: the poll is the only thing that can see the copy, so it has to
+       be fast enough to read as immediate (and cheap enough to keep running). */
     expect(CLIPBOARD_POLL_INTERVAL_MS).toBeGreaterThanOrEqual(250);
-    expect(CLIPBOARD_POLL_INTERVAL_MS).toBeLessThanOrEqual(2000);
+    expect(CLIPBOARD_POLL_INTERVAL_MS).toBeLessThanOrEqual(500);
   });
 });
 

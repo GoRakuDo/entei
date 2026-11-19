@@ -1,9 +1,10 @@
 //! OS clipboard TEXT read — the native half of `/search/`'s clipboard monitor.
 //!
 //! One direction only: this module never writes, never clears and never keeps a
-//! clipboard handle alive between calls. The Yomitan search page polls it while
-//! the window has focus (`modules/yomitan/search/clipboard-monitor.ts`), so a
-//! read has to be cheap, self-contained and — above all — unable to fail the
+//! clipboard handle alive between calls. The Yomitan search page polls it twice a
+//! second whether or not its window has focus
+//! (`modules/yomitan/search/use-clipboard-monitor.ts`), so a read has to be cheap,
+//! self-contained and — above all — unable to fail the
 //! page: a clipboard that is empty, holds an image, or is locked by another
 //! process answers "nothing to search", never an error.
 //!
@@ -19,9 +20,10 @@
 //!
 //! ANDROID FOCUS. `getPrimaryClip()` is only handed out to the app that
 //! currently has input focus (Android 10 / API 29 and later). That is a platform
-//! rule, not a bug here: it is why the caller polls on window focus rather than
-//! on a blind timer, and why this function answers "nothing" instead of raising
-//! when the app is in the background.
+//! rule, not a bug here: the caller polls on a timer regardless and simply gets
+//! "nothing" while the app is in the background, which is why this function
+//! answers "nothing" instead of raising — a monitor that failed there would stop
+//! following the clipboard for good.
 
 /// Blank means "nothing to search", at the one place that decides it.
 ///

@@ -246,7 +246,7 @@ export function nadeshikoUserMeDirect(
  * takes no arguments and never logs a value (see trace-logger, which records
  * arguments only) — the clipboard's own text stays out of the journal. It is also
  * the ONE command that bypasses the trace journal entirely, because the monitor
- * polls it once a second.
+ * polls it twice a second.
  *
  * The browser build has no native half, but it does have
  * `navigator.clipboard.readText()`; it goes through the same fail-soft contract,
@@ -265,7 +265,7 @@ export async function readClipboardTextDirect(): Promise<string | null> {
   if (isTauri()) {
     try {
       /* NOT `invokePluginCommand`, and that is deliberate: this is the one command
-         the page POLLS (once a second for as long as /search/ is open), so
+         the page POLLS (twice a second for as long as /search/ is open), so
          journalling each call would fill the 24 h trace window with identical
          clipboard reads — tens of thousands of rows — and push the entries worth
          reading out of it. The call itself is unchanged; only the trace is skipped.

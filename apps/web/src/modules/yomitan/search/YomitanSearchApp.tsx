@@ -38,10 +38,11 @@
  * the OS clipboard: text copied in another app shows up in the box and is looked up.
  * The read is native, because a page cannot read the clipboard
  * (`readClipboardTextDirect` → `plugin:modules|modules_clipboard_read_text`); what
- * is sampled and when is `clipboard-monitor.ts`, and its rules matter here — the
- * monitor only runs while the window has focus (the OS answers nobody else), and the
- * text that was ALREADY on the clipboard when the page opened is a baseline rather
- * than a query, so opening this page never searches your clipboard.
+ * is sampled and when is `use-clipboard-monitor.ts`, and its rules matter here — the
+ * monitor reads the clipboard as it opens and remembers THAT as its baseline, so the
+ * text that was already there is never searched, while the first thing copied
+ * afterwards is (a baseline left empty until the first sample would drop exactly
+ * that copy).
  *
  * The lookups themselves are Entei's (`yomitan-engine`, over the Rust dictionary
  * database). Outside the desktop app there is no engine, which reads as "no
@@ -65,7 +66,6 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import './search.css';
-import { readClipboardTextDirect } from '@/features/player/tauri-bridge';
 import { convertToKanaIME } from '@/modules/yomitan/vendor/js/language/ja/japanese-wanakana.js';
 import { listInstalledDictionariesCached } from '@/modules/yomitan/dictionary-store';
 import {
@@ -94,12 +94,6 @@ import {
   type QueryParserSettings,
 } from '@/modules/yomitan/search/query-parser';
 import {
-  CLIPBOARD_POLL_INTERVAL_MS,
-  classifyClipboardSample,
-  isSearchPageActive,
-  normalizeClipboardText,
-} from '@/modules/yomitan/search/clipboard-monitor';
-import {
   createSearchDisplay,
   setCurrentEntry,
   type SearchDisplay,
@@ -115,6 +109,7 @@ import {
   type SearchMode,
   type SearchOutcome,
 } from '@/modules/yomitan/search/search-query';
+import { useClipboardMonitor } from '@/modules/yomitan/search/use-clipboard-monitor';
 
 /**
  * This page's own English strings.
@@ -248,20 +243,6 @@ function kanjiLinkCharacter(link: Element): string {
   return [...(link.textContent ?? '')].find((character) => character.trim() !== '') ?? '';
 }
 
-/**
- * The plain text one `copy` event is putting on the clipboard, or `null`.
- *
- * The event's own clipboard payload comes first (a handler elsewhere may have
- * overridden what is copied); the document selection is the normal case, since a
- * plain Ctrl+C in the results does not touch `clipboardData` until after the
- * event has finished.
- */
-function copiedText(event: ClipboardEvent): string | null {
-  const payload = event.clipboardData?.getData('text/plain');
-  if (payload) return payload;
-  return window.getSelection()?.toString() ?? null;
-}
-
 /** One search page island. */
 export function YomitanSearchApp() {
   const [text, setText] = useState('');
@@ -308,16 +289,6 @@ export function YomitanSearchApp() {
   const lastLookupRef = useRef('');
   /** Caret to restore after the IME conversion rewrote the field. */
   const caretRef = useRef<number | null>(null);
-  /**
-   * The last clipboard sample this page ACCEPTED, in `normalizeClipboardText` form.
-   *
-   * A ref rather than a local in the monitor effect because it has a second writer:
-   * a copy made ON this page is remembered as the baseline too, so the monitor that
-   * polls once a second cannot read that copy back off the OS clipboard and look up
-   * the page's own text.
-   */
-  const clipboardBaselineRef = useRef<string | null>(null);
-
   /* ------------------------------------------------------------------------
    * Boot: the scoped Yomitan sheets, its generator and the dictionary list.
    * --------------------------------------------------------------------- */
@@ -568,91 +539,33 @@ export function YomitanSearchApp() {
   /* ------------------------------------------------------------------------
    * Clipboard monitor — `clipboard.enableSearchPageMonitor`.
    * -----------------------------------------------------------------------
-   * The field follows the OS clipboard, which is only readable natively and only
-   * while this window is the foreground one (see `clipboard-monitor.ts`). The
-   * baseline sample is taken on mount and deliberately NOT searched: the sentence
-   * already on the clipboard when the page opens is not a query. */
-  useEffect(() => {
-    if (!options.clipboardMonitor || !assetsReady) return;
-    let disposed = false;
-    /* One read in flight at a time: the poll and the focus listener fire together
-       whenever the window comes back, and two concurrent reads of the same new text
-       would look it up twice. */
-    let sampling = false;
-
-    const sample = async (): Promise<void> => {
-      if (disposed || sampling) return;
-      if (!isSearchPageActive(document.hasFocus(), document.visibilityState)) {
-        return;
-      }
-      sampling = true;
-      let current: string | null = null;
-      try {
-        current = await readClipboardTextDirect();
-      } finally {
-        /* ALWAYS released: `sampling` is the monitor's only latch, and one read that
-           escaped would stop the clipboard being followed for the rest of the page's
-           life — with no error anywhere to say so. */
-        sampling = false;
-      }
-      if (disposed) return;
-      const decision = classifyClipboardSample(
-        clipboardBaselineRef.current,
-        current,
-      );
-      if (decision.kind === 'idle') return;
-      /* Remembered in the SAME shortened form the decision was made on, or a value
-         longer than the cap would differ from itself on every poll and re-run the
-         same lookup once a second. */
-      clipboardBaselineRef.current = normalizeClipboardText(current);
-      if (decision.kind === 'baseline') return;
-      /* The query comes from the clipboard, so it is NOT run back through the romaji
-         converter the way a keystroke is: nothing was typed. The caret is left alone
-         too — this fires while the user is in ANOTHER window, and a caret parked for a
-         field that is not focused would fire later, on the next keystroke somewhere
-         else in the box.
-
-         'replace', never 'push' — same as typing: a clipboard sample is not a
-         navigation, and one history entry per copy would leave Back walking through
-         everything the clipboard happened to hold. */
-      setText(decision.query);
-      search('term', decision.query, 'replace');
-    };
-
-    const timer = window.setInterval(() => {
-      void sample();
-    }, CLIPBOARD_POLL_INTERVAL_MS);
-    /* Both edges the platforms hand the clipboard back on: regaining focus, and
-       becoming visible again (a tab that was in the background). */
-    window.addEventListener('focus', sample);
-    document.addEventListener('visibilitychange', sample);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-      window.removeEventListener('focus', sample);
-      document.removeEventListener('visibilitychange', sample);
-    };
-  }, [options.clipboardMonitor, assetsReady, search]);
-
-  /* ------------------------------------------------------------------------
-   * A copy made ON this page is not news.
-   * -----------------------------------------------------------------------
-   * Copying a headword out of the results and then alt-tabbing away would
-   * otherwise come back as a brand-new clipboard sample: the OS clipboard now
-   * holds this page's own text, the monitor sees it differ from the baseline, and
-   * the page looks itself up — a full engine round trip for a word the user just
-   * read. Remembering the copy as the baseline costs nothing and makes that sample
-   * a no-op, while a copy made in ANOTHER app is still news. */
-  useEffect(() => {
-    if (!options.clipboardMonitor) return;
-    const onCopy = (event: ClipboardEvent): void => {
-      const copied = copiedText(event);
-      if (copied === null) return;
-      clipboardBaselineRef.current = normalizeClipboardText(copied);
-    };
-    document.addEventListener('copy', onCopy);
-    return () => document.removeEventListener('copy', onCopy);
-  }, [options.clipboardMonitor]);
+   * The field follows the OS clipboard, which only the native side can read, and it
+   * follows it whether or not this window has focus (see `clipboard-monitor.ts`).
+   * What is on the clipboard as the page opens is remembered as the baseline and
+   * never searched; the first thing copied afterwards is.
+   *
+   * The monitor starts at mount, before dictionary assets finish loading, so a
+   * copy made while those assets load is already part of its baseline. The lookup
+   * itself still waits for assetsReady in search(), so an early copy is not searched
+   * before cards can be drawn.
+   *
+   * The query comes from the clipboard, so it is NOT run back through the romaji
+   * converter the way a keystroke is (nothing was typed) and no caret is placed (this
+   * fires while the user is in ANOTHER window, and a caret parked for a field that is
+   * not focused would fire later, on the next keystroke somewhere else in the box).
+   * 'replace', never 'push' — a clipboard sample is not a navigation, and one history
+   * entry per copy would leave Back walking through everything the clipboard held. */
+  const onClipboardSearch = useCallback(
+    (query: string) => {
+      setText(query);
+      search('term', query, 'replace');
+    },
+    [search],
+  );
+  useClipboardMonitor({
+    enabled: options.clipboardMonitor,
+    onSearch: onClipboardSearch,
+  });
 
   /* ------------------------------------------------------------------------
    * Field handlers.

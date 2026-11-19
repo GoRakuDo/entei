@@ -14,18 +14,23 @@
  * is Entei's own (`readClipboardTextDirect` → `plugin:modules|
  * modules_clipboard_read_text`), and the SAMPLING is what this module decides:
  *
- * - **Focus-gated.** Both Windows and Android only expose the clipboard to the
- *   foreground application, so the monitor samples when the window regains focus
- *   and while it is visible, never on a blind background timer.
- * - **The first sample is a BASELINE, not a search.** Copying a word, then opening
- *   `/search/`, must not fire a lookup for what happens to be on the clipboard
- *   already — upstream skips that first value too. Everything after it is compared
- *   against it.
+ * - **Always sampled.** Copying in ANOTHER app is the whole point, so the page
+ *   follows the clipboard whether or not this window holds focus; the two focus edges
+ *   only make the first sample after a copy instant instead of up to one poll late.
+ * - **The baseline is the clipboard AS THE PAGE OPENED, not the first sample.**
+ *   Copying a word, then opening `/search/`, must not fire a lookup for what
+ *   happens to be on the clipboard already — upstream skips that value too, and so
+ *   does the host (`use-clipboard-monitor` reads it as the monitor starts). The
+ *   comparison is against THAT, so the first copy made afterwards is a search; a
+ *   baseline nobody read yet would instead be filled by that very copy and dropped,
+ *   which is exactly the "the monitor is one copy behind" bug. An unknown baseline
+ *   is therefore `''` — never `null` — because `''` differs from every
+ *   lookup-worthy text.
  * - **A blank clipboard is not a query.** Neither is a value that differs from the
  *   last sample only in surrounding whitespace: both leave the field alone, and
  *   neither becomes the new baseline, so the next real copy is still detected.
  * - **Neither is anything a dictionary could not answer.** A URL, a paragraph of
- *   English or a 50 kB log line is not a lookup, and polling once a second makes
+ *   English or a 50 kB log line is not a lookup, and polling twice a second makes
  *   "look up everything the clipboard happens to hold" expensive: text is capped
  *   at [`MAXIMUM_SEARCH_LENGTH`] and has to contain Japanese to be searched.
  *
@@ -37,22 +42,32 @@
 import { normalizeSearchQuery } from '@/modules/yomitan/search/search-query';
 
 /**
- * How often the clipboard is re-read while the window is focused and visible.
+ * How often the clipboard is re-read, whether or not this window has focus.
  *
  * The clipboard carries no change notification on either platform, so polling is
- * the only mechanism. One second is what a copy → alt-tab → read round trip needs
- * to feel immediate, and it is cheap: the native read opens the clipboard, reads
- * one string and closes it again.
+ * the only mechanism. And the desktop use case is exactly “copy somewhere else,
+ * watch the page follow”: gating the poll on focus would hold the lookup back until
+ * the user came back to this window, which reads as the monitor lagging.
+ *
+ * Half a second is below the point where a copy looks delayed, and it is cheap: the
+ * native read opens the clipboard, reads one string and closes it again.
+ *
+ * An OS that answers nobody without focus (Android 10+) is not polled around: that
+ * read comes back empty, which is an ordinary `idle` sample, so the same loop simply
+ * waits for the next one.
  */
-export const CLIPBOARD_POLL_INTERVAL_MS = 1000;
+export const CLIPBOARD_POLL_INTERVAL_MS = 500;
 
 /** What one clipboard sample means for the search field. */
 export type ClipboardSample =
   /**
-   * The first readable sample: remembered, never searched.
+   * The first readable sample when there is no baseline yet: remembered, never
+   * searched.
    *
    * Without this the page would look up whatever was already on the clipboard when
-   * it opened — usually the sentence the user is in the middle of copying.
+   * it opened — usually the sentence the user is in the middle of copying. The host
+   * takes that sample itself as the monitor starts, so this is the MOUNT read in
+   * practice, not one of the user's copies.
    */
   | { readonly kind: 'baseline' }
   /** Nothing to do: unreadable, blank, or unchanged since the last sample. */
@@ -123,8 +138,11 @@ export function normalizeClipboardText(raw: string | null | undefined): string {
  * Decide what one sample of the clipboard means.
  *
  * `previous` is the last sample that was ACCEPTED (the baseline, then every text
- * that produced a search), in the form [`normalizeClipboardText`] returns;
- * `null` means nothing has been accepted yet.
+ * that produced a search), in the form [`normalizeClipboardText`] returns:
+ * `''` for a clipboard that was already empty as the page opened, and `null`
+ * only for a caller that has not sampled at all — which the host does not do,
+ * since it primes the baseline on mount precisely so that no real copy is spent as
+ * one.
  *
  * The comparison is on the NORMALIZED text, so a clipboard that gained or lost
  * trailing whitespace is not "new text" — but the query handed back is normalized
@@ -148,26 +166,8 @@ export function classifyClipboardSample(
   if (query === '') return { kind: 'idle' };
   // Nothing a dictionary could answer (a URL, a paragraph of English).
   if (!isTextLookupWorthy(query)) return { kind: 'idle' };
-  // Same word again — the common case, since this runs once a second.
+  // Same word again — the common case, since this runs twice a second.
   if (query === normalizeSearchQuery(previous)) return { kind: 'idle' };
   return { kind: 'search', query };
 }
 
-/**
- * True while this page is allowed to read the clipboard.
- *
- * A platform condition, not a preference: Windows and Android both hand the
- * clipboard to the FOREGROUND app only, so a sample taken while the window is
- * unfocused or hidden comes back empty (Android) or reports whatever the app that
- * does have focus copied last (Windows) — which would paste a stranger's clipboard
- * into the field the moment the user comes back.
- *
- * The focus and visibility listeners are what re-sample the instant this turns
- * true again, so no copy is missed while the page waits.
- */
-export function isSearchPageActive(
-  hasFocus: boolean,
-  visibilityState: string,
-): boolean {
-  return hasFocus && visibilityState === 'visible';
-}

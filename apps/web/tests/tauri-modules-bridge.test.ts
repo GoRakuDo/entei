@@ -323,7 +323,7 @@ describe('tauri-bridge modules commands', () => {
   });
 
   it('reports an empty or unreadable clipboard as null, never as a rejection', async () => {
-    /* The monitor polls this once a second: a rejection there would be an unhandled
+    /* The monitor polls this twice a second: a rejection there would be an unhandled
        rejection per second, and a locked clipboard / a missing plugin is simply a
        sample with nothing in it. */
     installTauri(() => '');
