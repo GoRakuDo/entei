@@ -225,6 +225,57 @@ body[data-page='search'] .entei-main-inner {
 @media (min-width: 768px) {
   .entei-yomitan-search .entei-yomitan-search-header {
     padding-block-start: calc(var(--entei-topbar-height) + var(--entei-space-8));
+    /* The clearance above shrinks once the pill is out of the way (see the
+       `data-pill-state` rule below), and it has to TRAVEL there: a step would read
+       as the whole page jumping on the frame the pill dismisses. Declared on the
+       rest state, so both directions animate. */
+    transition: padding-block-start var(--entei-duration-normal)
+      var(--entei-ease-productive);
+  }
+}
+
+/* Scrolled-down state — the desktop pill has dismissed itself, so the band this
+   block spends on clearing it is empty air and the page closes the gap.
+
+   WHAT THIS IS NOT. The pill's STATES (opacity / transform / pointer-events, the
+   750ms dwell reveal, `:focus-within`, reduced motion) are owned by `TopBar.astro`
+   for every route it renders on and are not restated here — the auto-hide contract
+   test guards exactly that. This rule only reads the state and moves THIS page's
+   own padding, which is the page's to spend (its 64 + 0.5rem is the same clearance
+   declared above).
+
+   72px -> 24px, not -> 0: the box still starts at the very top of the viewport
+   while pinned, and a pinned block flush against the edge reads as a rendering
+   error rather than as chrome that got out of the way.
+
+   `:hover` / `:focus-within` on the zone put the clearance back, because revealing
+   the pill is the user asking for the chrome to be there again — the pill would
+   otherwise float over the heading. `:root:has()` is the only link between the two
+   subtrees (the zone is TopBar's, the header is this page's); it is the same
+   construct `timeline.css` and `settings.css` already use.
+
+   Sticky only (`data-sticky-search-header`): with the option off the block scrolls
+   away with the document, so the clearance is never under the pill and nothing
+   needs reclaiming. */
+@media (min-width: 768px) {
+  :root:has(
+      .entei-desktop-pill-zone--autohide[data-pill-state='closed']:not(:hover):not(
+          :focus-within
+        )
+    )
+    .entei-yomitan-search
+    .entei-yomitan-search-header[data-sticky-search-header='true'] {
+    padding-block-start: var(--entei-space-24);
+  }
+}
+
+/* The shrink is the one motion this sheet adds, so it is the one that has to stop
+   when the user asks for less of it (the pill's own reduced-motion handling lives
+   in `TopBar.astro`, next to the states it belongs to). The state change itself
+   stays — 72px -> 24px is the layout the user scrolled into, not an animation. */
+@media (min-width: 768px) and (prefers-reduced-motion: reduce) {
+  .entei-yomitan-search .entei-yomitan-search-header {
+    transition: none;
   }
 }
 

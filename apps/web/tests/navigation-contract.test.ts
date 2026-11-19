@@ -989,16 +989,67 @@ describe('Auto-hide pill CSS contract (TopBar owns the states)', () => {
     expect(closed![0]).toContain('pointer-events: none');
   });
 
+  /* The contract this replaced used to be "the attribute string must not appear in
+     a page sheet at all". /search/ now READS the closed state to reclaim the
+     clearance it spends on the pill (its own padding, while the block is pinned),
+     which is not a restatement of the state — so the guard is now about what the
+     sheets may DECLARE, not about which attribute they may look at. */
+  function stripCssComments(css: string): string {
+    return css.replace(/\/\*[\s\S]*?\*\//g, '');
+  }
+
   it('no page sheet restates the pill states any more', async () => {
     for (const sheet of [
       'src/modules/yomitan/search/search.css',
       'src/styles/settings.css',
     ]) {
-      const css = await readRepoFile(sheet);
-      // The selector form only: the sheets may still MENTION the attribute in a
-      // comment pointing at the owner, they must not act on it.
-      expect(css).not.toContain("data-pill-state='closed'");
+      const css = stripCssComments(await readRepoFile(sheet));
+      // The pill's OWN states — opacity / transform / pointer-events — are
+      // TopBar's for every route. A page sheet must not declare any of them on
+      // `.entei-desktop-pill` (`-zone` / `-trigger-zone` are different elements).
+      expect(css).not.toMatch(
+        /\.entei-desktop-pill(?![-\w])[^{}]*\{[^}]*(?:opacity|transform|pointer-events)\s*:/,
+      );
     }
+  });
+
+  it('the closed state is only READ by /search/, to shrink its own clearance', async () => {
+    const css = stripCssComments(
+      await readRepoFile('src/modules/yomitan/search/search.css'),
+    );
+
+    // The rest state is still 64px + 0.5rem of chrome clearance, so the rule
+    // below is a shrink and not the new base value.
+    expect(css).toMatch(
+      /\.entei-yomitan-search \.entei-yomitan-search-header \{[^}]*padding-block-start:\s*calc\(var\(--entei-topbar-height\) \+ var\(--entei-space-8\)\);/,
+    );
+    // It travels there instead of stepping (transition on the rest state, both
+    // directions), and stops when reduced motion is asked for.
+    expect(css).toMatch(
+      /transition:\s*padding-block-start\s+var\(--entei-duration-normal\)\s+var\(--entei-ease-productive\);/,
+    );
+    expect(css).toMatch(
+      /@media \(min-width: 768px\) and \(prefers-reduced-motion: reduce\) \{[^}]*transition:\s*none;/,
+    );
+
+    // The read itself: the attribute stays a CONDITION inside `:has()`, the
+    // selector's subject is this page's own header, and what it moves is that
+    // header's top padding — desktop only, sticky only (with the option off the
+    // block scrolls away, so there is no clearance under the pill to reclaim).
+    const shrink = css.match(
+      /@media \(min-width: 768px\) \{[^@]*?:root:has\([\s\S]*?data-pill-state='closed'[\s\S]*?\)\s*\.entei-yomitan-search\s*\.entei-yomitan-search-header\[data-sticky-search-header='true'\] \{([^}]*)\}/,
+    );
+    expect(shrink).not.toBeNull();
+    // Whitespace around `(`, `)` and `,` is not part of the contract: the sheet
+    // legitimately wraps this selector across lines (printWidth 80), so the
+    // selector is compared with that spacing removed.
+    const shrinkSelector = shrink![0].replace(/\s*([(),])\s*/g, '$1');
+    // Reveal / focus give the clearance back, or the pill would float over the
+    // heading it is supposed to clear.
+    expect(shrinkSelector).toContain(':not(:hover)');
+    expect(shrinkSelector).toContain(':not(:focus-within)');
+    expect(shrink![1]).toContain('padding-block-start: var(--entei-space-24);');
+    expect(shrink![1]).not.toMatch(/opacity|transform|pointer-events/);
   });
 
   it('/settings/ keeps its floating anchor without the top-edge dead strip', async () => {
