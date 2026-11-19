@@ -49,6 +49,8 @@ export const SETTINGS_STORAGE_KEYS: readonly string[] = [
   'entei.yomitan.options.v1', // full Yomitan options tree (yomitan-preferences.ts)
   'entei.player.anki-miner.v1', // AnkiConnect deck/note/field mapping
   'entei.preferences.v1', // UI language (i18n/preferences.ts PREFERENCES_KEY)
+  'entei.settings.moduleExpanded', // /settings/ Modules accordion (SettingsApp.tsx)
+  'entei.settings.sidebarCollapsed', // /settings/ desktop sidebar rail (SettingsApp.tsx)
 ] as const;
 
 function dbKey(localStorageKey: string): string {

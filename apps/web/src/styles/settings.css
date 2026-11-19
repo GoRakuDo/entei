@@ -1511,8 +1511,9 @@ body[data-page='settings'] .entei-main {
     overflow-y: auto;
     /* Top padding lifts the toggle button up to Y=16px, aligning flush
        with the floating TopBar pill top edge (which sits at top: 16px).
-       Right padding (16px) gives items breathing room against the right border. */
-    padding: var(--entei-space-16) var(--entei-space-16) var(--entei-space-32)
+       Inline padding is symmetric on both sides (the content/page gutter) so
+       the nav rows and the content pane share one left/right rhythm. */
+    padding: var(--entei-space-16) var(--entei-gutter) var(--entei-space-32)
       var(--entei-gutter);
     /* Thin right boundary (Shadcn-Sidebar parity) — docks the content pane
        flush against the sidebar with no dead gap between them. */

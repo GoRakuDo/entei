@@ -125,13 +125,36 @@ const MODULE_ICONS: Record<string, LucideIcon> = {
 /** localStorage key persisting the desktop sidebar's collapsed state. */
 const SIDEBAR_COLLAPSED_KEY = 'entei.settings.sidebarCollapsed';
 
-/** Read the persisted sidebar-collapsed flag (desktop only consumer). */
-function readSidebarCollapsed(): boolean {
-  if (typeof window === 'undefined') return false;
+/** localStorage key persisting the desktop "Modul" accordion open state. */
+const MODULE_EXPANDED_KEY = 'entei.settings.moduleExpanded';
+
+/**
+ * Read a persisted boolean localStorage flag (SSR-safe, never throws).
+ *
+ * A stored value that is neither `true` nor `false` (hand-edited, stale) falls
+ * back to the caller's default instead of silently coercing to `false`.
+ */
+function readBoolFlag(key: string, defaultVal: boolean): boolean {
+  if (typeof window === 'undefined') return defaultVal;
   try {
-    return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
+    const raw = window.localStorage.getItem(key);
+    if (raw === 'true') return true;
+    if (raw === 'false') return false;
+    return defaultVal;
   } catch {
-    return false;
+    return defaultVal;
+  }
+}
+
+/**
+ * Persist a boolean localStorage flag (mirrors to the desktop DB on write).
+ * An unavailable localStorage degrades to memory-only for this session.
+ */
+function writeBoolFlag(key: string, value: boolean): void {
+  try {
+    window.localStorage.setItem(key, String(value));
+  } catch {
+    /* localStorage unavailable — in-memory only, still works this session */
   }
 }
 
@@ -209,24 +232,36 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
   /* Desktop sidebar collapsed state (icon-only rail) — persisted so the
      choice survives reloads. Mobile ignores it (drill-down owns the nav). */
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
-    readSidebarCollapsed(),
+    readBoolFlag(SIDEBAR_COLLAPSED_KEY, false),
   );
   /* Modules group accordion (desktop sidebar). true = children visible.
      Toggling the Modules row collapses/expands the registered module list. */
-  const [moduleExpanded, setModuleExpanded] = useState(true);
+  const [moduleExpanded, setModuleExpanded] = useState<boolean>(() =>
+    readBoolFlag(MODULE_EXPANDED_KEY, true),
+  );
 
   const toggleModuleExpanded = useCallback(() => {
-    setModuleExpanded((prev) => !prev);
+    setModuleExpanded((prev) => {
+      const next = !prev;
+      writeBoolFlag(MODULE_EXPANDED_KEY, next);
+      return next;
+    });
+  }, []);
+
+  /* Ensure-expanded helper (entering the Modules group) — also persisted, but
+     only when it is actually collapsed (no needless localStorage + DB write). */
+  const expandModules = useCallback(() => {
+    setModuleExpanded((prev) => {
+      if (prev) return prev;
+      writeBoolFlag(MODULE_EXPANDED_KEY, true);
+      return true;
+    });
   }, []);
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
       const next = !prev;
-      try {
-        window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
-      } catch {
-        /* localStorage unavailable — in-memory only, still works this session */
-      }
+      writeBoolFlag(SIDEBAR_COLLAPSED_KEY, next);
       return next;
     });
   }, []);
@@ -234,7 +269,12 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
   /* Activate hybrid persistence (localStorage + desktop SQLite) and follow
      locale changes so the React-rendered labels switch live. */
   useEffect(() => {
-    void initSettingsSync();
+    void initSettingsSync().then(() => {
+      /* The DB→cache seed has settled, so the flags may have changed under us
+         (desktop DB restored a value the cache lacked) — re-read them now. */
+      setSidebarCollapsed(readBoolFlag(SIDEBAR_COLLAPSED_KEY, false));
+      setModuleExpanded(readBoolFlag(MODULE_EXPANDED_KEY, true));
+    });
     /* A module's own settings payload belongs to its renderer (it seeds itself
        from the desktop DB when its page opens), so this island holds no module
        settings state of its own. */
@@ -449,7 +489,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                     } else {
                       // On a child page (Yomitan/Jimaku/Nadeshiko) or entering from another group —
                       // ensure expanded and navigate to the Modules landing page
-                      setModuleExpanded(true);
+                      expandModules();
                       navigate(id, null);
                     }
                   } else {
