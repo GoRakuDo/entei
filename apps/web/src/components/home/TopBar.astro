@@ -1139,7 +1139,7 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
    * top of the content the user is reading).
    *
    * It has exactly two ways back, plus the keyboard:
-   *   1. the page is scrolled back to the very top (|Y| <= 10px), and
+   *   1. the page is scrolled back to the very top (see HYSTERESIS below), and
    *   2. a 750ms dwell on the top edge (the player's own trigger region, now
    *      shared by every route) — pure CSS on `:hover`, so it needs no JS here.
    * `:focus-within` keeps working in both states.
@@ -1162,8 +1162,24 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
 
     /** Sub-pixel jitter must not flip the pill's state. */
     const SCROLL_DELTA_THRESHOLD_PX = 6;
-    /** "At the very top of the page": the same epsilon the dock uses. */
-    const TOP_EPSILON_PX = 10;
+    /**
+     * HYSTERESIS (dead band) — this is what stops the shake.
+     * ---------------------------------------------------------------------------
+     * Closing the pill shrinks the sticky /search/ header by 48px (72px -> 24px,
+     * search.css), and that shrink feeds the scroll position straight back:
+     * Chrome's scroll anchoring compensates by moving scrollY by the same 48px.
+     * With a single "top" epsilon the two rules then hand the state to each
+     * other — closed -> anchoring moves Y -> "at top" -> open -> header grows ->
+     * anchoring moves Y back -> "not at top" -> closed — and the pill convulses
+     * several times a second.
+     *
+     * A dead band WIDER than that 48px compensation makes the loop impossible:
+     * once the pill is closed, anchoring can only move Y inside 24..96, which is
+     * exactly the band that keeps whatever state was last settled.
+     */
+    const TOP_ENTER_PX = 24;
+    /** = 96: more than the 48px of anchoring compensation, so no flip back. */
+    const TOP_EXIT_PX = TOP_ENTER_PX + 72;
     let lastScrollY = window.scrollY;
 
     function setPillOpen(open: boolean) {
@@ -1181,27 +1197,33 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
     function handleScroll() {
       const currentScrollY = window.scrollY;
       const delta = currentScrollY - lastScrollY;
-
-      /* Only the very top of the page reveals the pill. */
-      if (currentScrollY <= TOP_EPSILON_PX) {
+      /* Only the very top of the page reveals the pill. `lastScrollY` is
+         re-anchored here: the pill is open again, so the next gesture should be
+         measured from this position. (The 48px of /search/ header anchoring
+         compensation stays far below TOP_EXIT_PX, so it cannot close it.) */
+      if (currentScrollY <= TOP_ENTER_PX) {
+        lastScrollY = currentScrollY;
         setPillOpen(true);
-        lastScrollY = currentScrollY;
         return;
       }
-      /* Scrolling UP mid-page deliberately keeps the current state: the user is
-         reading, not asking for navigation. Only DOWN dismisses. */
-      if (delta < -SCROLL_DELTA_THRESHOLD_PX) {
-        lastScrollY = currentScrollY;
-        return;
-      }
+      /* Dead band: keep the state that was last settled. Scrolling UP mid-page
+         lands here as well — the user is reading, not asking for navigation.
+         `lastScrollY` is deliberately NOT re-anchored, so the movement keeps
+         accumulating (see below). */
+      if (currentScrollY <= TOP_EXIT_PX) return;
+      /* Anything further down keeps the current state unless the page has moved
+         DOWN by SCROLL_DELTA_THRESHOLD_PX in total. Because `lastScrollY` is only
+         re-anchored once the threshold is crossed, a slow trackpad scroll of
+         2-5px per frame accumulates instead of resetting every frame and never
+         dismissing the pill. */
       if (delta < SCROLL_DELTA_THRESHOLD_PX) return;
-      setPillOpen(false);
       lastScrollY = currentScrollY;
+      setPillOpen(false);
     }
 
     /* A reload that restores a mid-page scroll position starts with the pill
        already dismissed, matching the state the first scroll DOWN would give. */
-    if (window.scrollY > TOP_EPSILON_PX) setPillOpen(false);
+    if (window.scrollY > TOP_EXIT_PX) setPillOpen(false);
 
     let scrollFrameQueued = false;
     function onScrollRaf() {
