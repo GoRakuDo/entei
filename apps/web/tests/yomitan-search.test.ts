@@ -51,6 +51,7 @@ import {
   resolveSearchOutcome,
   searchEntriesForMode,
   searchLookupOrder,
+  searchParamsToLookup,
 } from '@/modules/yomitan/search/search-query';
 import {
   convertSegmentReading,
@@ -385,6 +386,61 @@ describe('search-query — one search', () => {
     expect(asSearchMode('kanji')).toBe('kanji');
     expect(asSearchMode('term')).toBe('term');
     expect(asSearchMode('scan')).toBe('term');
+  });
+});
+
+describe('search-query — internal gloss links', () => {
+  it('parses dictionary internal link parameters into a search lookup', () => {
+    expect(searchParamsToLookup({ type: 'kanji', query: '法' })).toEqual({
+      mode: 'kanji',
+      query: '法',
+    });
+  });
+
+  it("reads upstream's own `type=terms`, which is the value a real link carries", () => {
+    /* Upstream writes its CONTENT TYPE into the URL, not this page's mode name:
+       `Display._createSearchParams` sets `params.type = type` and
+       `Display._onStateChanged` switches on `case 'terms': case 'kanji':`. The
+       singular `term` is Entei's own name and appears in no dictionary link, so the
+       form worth asserting is the plural one. */
+    expect(searchParamsToLookup({ type: 'terms', query: '法人' })).toEqual({
+      mode: 'term',
+      query: '法人',
+    });
+    expect(searchParamsToLookup({ type: 'terms', query: '  法人 ' })).toEqual({
+      mode: 'term',
+      query: '法人',
+    });
+    // A link with no `type` at all (`?query=…`) is a term lookup too.
+    expect(searchParamsToLookup({ query: '法人' })).toEqual({
+      mode: 'term',
+      query: '法人',
+    });
+  });
+
+  it('trims whitespace in internal link query parameters', () => {
+    expect(searchParamsToLookup({ type: 'terms', query: '  法人 \n' })).toEqual({
+      mode: 'term',
+      query: '法人',
+    });
+  });
+
+  it('defaults to term mode when type is missing or unrecognized', () => {
+    expect(searchParamsToLookup({ query: '法人' })).toEqual({
+      mode: 'term',
+      query: '法人',
+    });
+    expect(searchParamsToLookup({ type: 'unknown', query: '法人' })).toEqual({
+      mode: 'term',
+      query: '法人',
+    });
+  });
+
+  it('returns null when internal link query is missing or blank', () => {
+    expect(searchParamsToLookup({ type: 'term' })).toBeNull();
+    expect(searchParamsToLookup({ type: 'term', query: '' })).toBeNull();
+    expect(searchParamsToLookup({ type: 'term', query: '   \n' })).toBeNull();
+    expect(searchParamsToLookup({})).toBeNull();
   });
 });
 

@@ -49,19 +49,15 @@ import {
 } from '@/modules/yomitan/popup-preview/popup-entries';
 
 /**
- * The host stub `DisplayContentManager` needs.
- *
- * The generator calls `prepareLink` unconditionally and reaches for
- * `application.api` only when a gloss carries media.
+ * Options for `createSearchDisplay`.
  */
-const CONTENT_MANAGER_HOST = {
-  application: {
-    api: {
-      drawMedia: () => {},
-      getMedia: async () => [],
-    },
-  },
-};
+export interface SearchDisplayOptions {
+  /**
+   * Called when an internal link inside a definition card is clicked
+   * (e.g., `see: 法人` links with query parameters).
+   */
+  onInternalLink?: (params: Record<string, string>) => void;
+}
 
 /** What the search page draws its cards with. */
 export interface SearchDisplay {
@@ -143,14 +139,34 @@ type GeneratorWithCards = {
  */
 export async function createSearchDisplay(
   templates: string,
+  options: SearchDisplayOptions = {},
 ): Promise<SearchDisplay> {
   const [{ DisplayGenerator }, { DisplayContentManager }] = await Promise.all([
     import('@/modules/yomitan/vendor/js/display/display-generator.js'),
     import('@/modules/yomitan/vendor/js/display/display-content-manager.js'),
   ]);
 
+  /* The host stub `DisplayContentManager` needs.
+   *
+   * `prepareLink` unconditionally attaches `_onLinkClick`, which parses internal
+   * link query parameters and calls `this._display.setContent(...)`.
+   */
+  const contentManagerHost = {
+    application: {
+      api: {
+        drawMedia: () => {},
+        getMedia: async () => [],
+      },
+    },
+    setContent: (details: { params?: Record<string, string> } | null) => {
+      if (details?.params && options.onInternalLink) {
+        options.onInternalLink(details.params);
+      }
+    },
+  };
+
   const generator = new DisplayGenerator(
-    new DisplayContentManager(CONTENT_MANAGER_HOST),
+    new DisplayContentManager(contentManagerHost),
     null,
   );
   generator._templates.load(

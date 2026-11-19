@@ -42,6 +42,30 @@ export function asSearchMode(mode: PopupHistoryMode): SearchMode {
 }
 
 /**
+ * Parse dictionary internal link query parameters into a search lookup.
+ *
+ * Upstream's `.gloss-link` carries the CONTENT TYPE it should be looked up as, not
+ * this page's mode name: `Display._createSearchParams` writes `params.type = type`
+ * where `type` is upstream's own `PageType`, and `Display._onStateChanged` reads it
+ * back with `case 'terms': case 'kanji':` — so a real dictionary link is
+ * `?type=terms&query=...` or `?type=kanji&query=...` (the singular `term` never
+ * appears upstream). `DisplayContentManager._onLinkClick` collects the URL's search
+ * parameters into `Record<string, string>` and hands them to `setContent`, which is
+ * what reaches this helper through `search-display.ts`.
+ *
+ * Anything that is not `kanji` is a TERM lookup, which covers both the plural
+ * upstream value and a link that carries no `type` at all; a blank or absent `query`
+ * returns `null` rather than searching for the empty string.
+ */
+export function searchParamsToLookup(
+  params: Record<string, string>,
+): { mode: SearchMode; query: string } | null {
+  const query = normalizeSearchQuery(params.query);
+  if (query === '') return null;
+  return { mode: params.type === 'kanji' ? 'kanji' : 'term', query };
+}
+
+/**
  * The query of one search, as the engine receives it.
  *
  * Upstream's `_search` is exactly this: `this._queryInput.value.trim()`. The

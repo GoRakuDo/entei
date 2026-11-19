@@ -105,6 +105,7 @@ import {
   resolveSearchOutcome,
   searchEntriesForMode,
   searchLookupOrder,
+  searchParamsToLookup,
   type SearchEntries,
   type SearchMode,
   type SearchOutcome,
@@ -156,6 +157,16 @@ const QUERY_PARSER_DELAY_MS = LIVE_SEARCH_DELAY_MS;
 interface SearchHistoryState {
   enteiYomitanSearch: { mode: SearchMode; query: string };
 }
+
+/**
+ * One search, as every caller invokes it: the field, Enter, Back, the clipboard
+ * and — the reason this type exists — an internal link inside a card.
+ */
+type SearchFn = (
+  mode: SearchMode,
+  query: string,
+  historyMode?: 'push' | 'replace',
+) => void;
 
 /** What the page reads from the persisted Yomitan options before searching. */
 interface SearchOptions {
@@ -289,6 +300,18 @@ export function YomitanSearchApp() {
   const lastLookupRef = useRef('');
   /** Caret to restore after the IME conversion rewrote the field. */
   const caretRef = useRef<number | null>(null);
+  /**
+   * The current `search`, for the ONE callback that outlives a render.
+   *
+   * The display generator is built once, in the mount effect, and the
+   * `onInternalLink` closure handed to it lives as long as the cards do. Calling
+   * `search` from there directly would freeze the first render's copy forever —
+   * harmless while `search` only depends on stable values, and a trap the moment
+   * it reads anything from state. Going through a ref means that callback always
+   * runs the search this render means, and the mount effect no longer has to name
+   * a `const` declared below it.
+   */
+  const searchRef = useRef<SearchFn | null>(null);
   /* ------------------------------------------------------------------------
    * Boot: the scoped Yomitan sheets, its generator and the dictionary list.
    * --------------------------------------------------------------------- */
@@ -303,7 +326,17 @@ export function YomitanSearchApp() {
           listInstalledDictionariesCached().catch(() => []),
         ]);
         if (cancelled) return;
-        const display = await createSearchDisplay(assets.templates);
+        const display = await createSearchDisplay(assets.templates, {
+          onInternalLink: (params: Record<string, string>) => {
+            const lookup = searchParamsToLookup(params);
+            if (lookup !== null) {
+              setText(lookup.query);
+              // Through the ref: see `searchRef` — this closure is created once
+              // at mount and must not keep calling the search of that render.
+              searchRef.current?.(lookup.mode, lookup.query, 'push');
+            }
+          },
+        });
         if (cancelled) return;
         displayRef.current = display;
         dictionariesRef.current = toPopupDictionaryInfo(installed);
@@ -479,6 +512,8 @@ export function YomitanSearchApp() {
     },
     [runLookup],
   );
+  /* Kept current on every render, for the mount effect's own callback above. */
+  searchRef.current = search;
 
   /* ------------------------------------------------------------------------
    * Live search — the results follow the field; Enter only CONFIRMS the entry.
@@ -629,6 +664,25 @@ export function YomitanSearchApp() {
     // character is looked up here.
     event.preventDefault();
     search('kanji', character);
+  };
+
+  /**
+   * A middle (or right) click in the results must not navigate.
+   *
+   * Upstream only listens for `click` (`DisplayContentManager.prepareLink`), and a
+   * middle click fires `auxclick` instead — so the link's default action was live:
+   * an internal gloss link points at upstream's own `search.html?type=…` (its
+   * `_createLinkElement` rewrites `?query=…` into that absolute URL), which does not
+   * exist here, and an external one would leave the app in a new tab. Neither is a
+   * lookup, and the lookup is what a gloss link is for. The PRIMARY click is
+   * unaffected: it is `_onLinkClick` → `onInternalLink` above, which preventDefaults
+   * its own navigation.
+   */
+  const onEntriesAuxClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest('a.gloss-link') === null) return;
+    event.preventDefault();
   };
 
   /**
@@ -808,6 +862,7 @@ export function YomitanSearchApp() {
                   id="dictionary-entries"
                   ref={entriesRef}
                   onClick={onEntriesClick}
+                  onAuxClick={onEntriesAuxClick}
                 />
                 <div
                   className="entry"
