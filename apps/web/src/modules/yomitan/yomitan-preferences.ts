@@ -25,6 +25,7 @@
 import {
   createDefaultOptions,
   createDefaultProfileOptions,
+  type AudioSource,
   type Options,
   type ProfileOptions,
   type ScanningInput,
@@ -619,7 +620,44 @@ function migrateLegacyPayload(
   ) {
     migrated = migrateLegacySearchDefaults(migrated);
   }
+  // Seed the host default audio source into every profile that has no sources
+  // yet, so pre-existing payloads also start on JapanesePod101.
+  migrated = {
+    ...migrated,
+    profiles: migrated.profiles.map((profile) => ({
+      ...profile,
+      options: seedDefaultAudioSource(profile.options),
+    })),
+  };
   return migrated;
+}
+
+/** Dot-path of the audio playback sources list. */
+const AUDIO_SOURCES_PATH = 'audio.sources';
+
+/** The single source a fresh / unset profile starts with: JapanesePod101. */
+const DEFAULT_AUDIO_SOURCE: AudioSource = {
+  type: 'jpod101',
+  url: '',
+  voice: '',
+};
+
+/**
+ * Seed the host default audio source into one profile's options.
+ *
+ * Upstream's `createDefaultAudioOptions()` ships `sources: []`, which leaves a
+ * fresh profile with no audio playback at all. Entei wants JapanesePod101 to be
+ * the out-of-the-box source, so an EMPTY (or missing) list is seeded with it.
+ * This is a DEFAULT, not a lock: a profile that already has one or more sources
+ * keeps them untouched, and the user can remove or replace the source in the
+ * Audio section of the settings UI (components/settings/module-data-sources.tsx).
+ */
+function seedDefaultAudioSource(options: ProfileOptions): ProfileOptions {
+  const sources = options.audio?.sources;
+  if (Array.isArray(sources) && sources.length > 0) return options;
+  return setPathValue(options, AUDIO_SOURCES_PATH, [
+    DEFAULT_AUDIO_SOURCE,
+  ]) as ProfileOptions;
 }
 
 /**
@@ -635,6 +673,7 @@ function createHostProfileOptions(): ProfileOptions {
   );
   opts = setPathValue(opts, 'scanning.autoHideResults', true);
   opts = setPathValue(opts, 'scanning.hideDelay', 2000);
+  opts = seedDefaultAudioSource(opts as ProfileOptions);
   // Search window: Entei ships both of upstream's "off" switches ON, because a
   // host page has no window of its own to keep the box in and no other way to
   // start a lookup than typing it.

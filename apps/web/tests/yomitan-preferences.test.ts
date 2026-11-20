@@ -81,6 +81,48 @@ describe('yomitan-preferences — defaults', () => {
     ).toBe(false);
   });
 
+  it('seeds JapanesePod101 as the default audio source', () => {
+    const options = readYomitanOptions();
+    const profile = activeProfileOptions(options);
+    // A default, not a lock: one JapanesePod101 source on a fresh tree.
+    expect(profile.audio.sources).toEqual([
+      { type: 'jpod101', url: '', voice: '' },
+    ]);
+    // Removing it is allowed — it is not a locked path.
+    const next = writeOptionPath(options, 'audio.sources', []);
+    expect(activeProfileOptions(next).audio.sources).toEqual([]);
+  });
+
+  it('seeds the default audio source on an unset profile and keeps existing sources', () => {
+    // A stored tree with a missing/empty audio.sources still gets the default.
+    const seeded = normalizeOptions({ profiles: [], profileCurrent: 0 });
+    expect(activeProfileOptions(seeded).audio.sources).toEqual([
+      { type: 'jpod101', url: '', voice: '' },
+    ]);
+
+    // A user's own sources are never overwritten or appended to.
+    const base = createDefaultProfileOptions();
+    const custom = normalizeOptions({
+      profiles: [
+        {
+          name: 'Default',
+          conditionGroups: [],
+          options: {
+            ...base,
+            audio: {
+              ...base.audio,
+              sources: [{ type: 'jisho', url: '', voice: '' }],
+            },
+          },
+        },
+      ],
+      profileCurrent: 0,
+    });
+    expect(activeProfileOptions(custom).audio.sources).toEqual([
+      { type: 'jisho', url: '', voice: '' },
+    ]);
+  });
+
   it('falls back to defaults on corrupted JSON', () => {
     localStorage.setItem(YOMITAN_OPTIONS_KEY, '{not json');
     expect(() => readYomitanOptions()).not.toThrow();

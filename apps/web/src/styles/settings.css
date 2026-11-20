@@ -1652,8 +1652,14 @@ body[data-page='settings'] .entei-main {
   list-style: none;
 }
 
+/* The row is a 4-column grid: drag handle | source Combobox | URL input |
+   remove button. The Combobox and the optional URL input each take an equal
+   half of the space between the handle and the trash button, so the Combobox
+   keeps a stable 50% width whether or not a URL field is rendered, and the
+   trash button stays pinned to the right edge. */
 .entei-module-audio-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--entei-space-8);
   min-height: var(--entei-touch-min);
@@ -1666,28 +1672,45 @@ body[data-page='settings'] .entei-main {
 }
 
 .entei-module-audio-select {
-  width: 11rem;
-  max-width: 100%;
+  grid-column: 2;
+  width: 100%;
   height: var(--entei-touch-min);
-  flex-shrink: 0;
-}
-
-@media (max-width: 767px) {
-  .entei-module-audio-select {
-    width: 9rem;
-  }
 }
 
 .entei-module-audio-url {
-  flex: 1;
+  grid-column: 3;
+  width: 100%;
   min-width: 0;
   height: var(--entei-touch-min);
 }
 
-/* Push the remove (trash) button to the right edge of the row regardless of
-   whether the optional URL input is rendered. */
+/* Pin the remove (trash) button to the last column, right edge of the row,
+   regardless of whether the optional URL input is rendered. */
 .entei-module-audio-row .entei-module-list-remove {
-  margin-left: auto;
+  grid-column: 4;
+}
+
+@media (max-width: 767px) {
+  /* Narrow cards: drop the fixed half-split and let the handle, Combobox and
+     trash share one line, wrapping the URL input onto its own full-width line
+     when a Custom URL source is selected. */
+  .entei-module-audio-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: var(--entei-space-8);
+  }
+
+  .entei-module-audio-select {
+    grid-column: 2;
+  }
+
+  .entei-module-audio-url {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .entei-module-audio-row .entei-module-list-remove {
+    grid-column: 3;
+  }
 }
 
 /* Reduced motion */
