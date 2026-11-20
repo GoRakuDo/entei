@@ -551,6 +551,42 @@
           "description": "Compress frequency tags into one \"Average\" frequency tag based on the harmonic mean."
         }
       ]
+    },
+    {
+      "section": "audio",
+      "rows": [
+        {
+          "layout": "field",
+          "field": "audio.enabled",
+          "label": "Enable audio playback for terms",
+          "description": "Show a clickable speaker icon next to search results."
+        },
+        {
+          "layout": "field",
+          "field": "audio.autoPlay",
+          "label": "Auto-play search result audio",
+          "description": "The audio for the first result will be played automatically."
+        },
+        {
+          "layout": "field",
+          "field": "audio.sources",
+          "source": "yomitan-audio-sources",
+          "label": "Configure audio playback sources...",
+          "description": "When searching for audio, the sources are checked in order until the first valid source is found. This allows for selecting a fallback source if the first choice is not available."
+        },
+        {
+          "layout": "field",
+          "field": "audio.fallbackSoundType",
+          "type": "select",
+          "label": "Audio fallback sound",
+          "description": "The sound to play when Yomitan fails to fetch audio.",
+          "options": [
+            { "value": "none", "label": "None" },
+            { "value": "click", "label": "Click" },
+            { "value": "bloop", "label": "Bloop" }
+          ]
+        }
+      ]
     }
   ]
 }

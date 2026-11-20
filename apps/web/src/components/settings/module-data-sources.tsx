@@ -30,8 +30,11 @@
  * the page draw an editor the app does not implement.
  */
 
-import { useState, type ComponentType } from 'react';
+import { useCallback, useRef, useState, useId, type ComponentType } from 'react';
+import { GripVertical, Plus, Trash2 } from 'lucide-react';
 import type {
+  AudioSource,
+  AudioSourceType,
   Options,
   SelectOption,
 } from '@gorakudo/yomitan-headless/settings';
@@ -51,6 +54,10 @@ import {
   listInstalledDictionaries,
   readDictionaryStorageUsage,
 } from '@/modules/yomitan/dictionary-store';
+import {
+  readOptionPath,
+  writeOptionPath,
+} from '@/modules/yomitan/yomitan-preferences';
 import { YomitanPopupPreview } from '@/modules/yomitan/popup-preview/YomitanPopupPreview';
 import type { StorageUsageSnapshot } from '@/features/settings/storage-usage';
 import {
@@ -58,7 +65,16 @@ import {
   setJimakuApiKey,
   setJimakuAutoLoad,
 } from '@/features/player/jimaku-preferences';
+import { Input } from '@/components/player/ui/input';
 import { Switch } from '@/components/player/ui/switch';
+import { SettingsButton } from '@/components/settings/SettingsButton';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/player/ui/select';
 import {
   JIMAKU_KEY_CHANGED_EVENT,
   dispatchJimakuKeyChanged,
@@ -261,6 +277,276 @@ const NADESHIKO_API_KEY_FIELD = createSecretField({
   syncEvents: [NADESHIKO_KEY_CHANGED_EVENT],
 });
 
+/* ---------------------------------------------------------------------------
+ * Yomitan Audio Sources
+ * -------------------------------------------------------------------------
+ * Yomitan models audio playback sources as an ordered list (`audio.sources[]`).
+ * Each entry names a source TYPE (one of several built-in providers or a custom
+ * URL) and, for custom types, the URL to fetch from. The list is checked in
+ * order; the first valid source wins, so the order is the fallback chain.
+ *
+ * The settings tree can only describe the array as a whole (`type: 'array'`),
+ * so the host owns an editor: this one, registered under `yomitan-audio-sources`
+ * and bound to `audio.sources` in the manifest's Audio section.
+ *
+ * TTS types (`text-to-speech`, `text-to-speech-reading`) are deliberately
+ * excluded from the selectable options per product decision.
+ * ------------------------------------------------------------------------- */
+
+/** Dot-path of the audio sources array. */
+const AUDIO_SOURCES_PATH = 'audio.sources';
+
+/** The audio source types this host offers (TTS excluded by product decision). */
+const AUDIO_SOURCE_TYPES: ReadonlyArray<{ value: AudioSourceType; label: string }> = [
+  { value: 'custom-json', label: 'Custom URL (JSON)' },
+  { value: 'custom', label: 'Custom URL' },
+  { value: 'jisho', label: 'Jisho.org' },
+  { value: 'jpod101', label: 'JapanesePod101' },
+  { value: 'language-pod-101', label: 'LanguagePod101' },
+  { value: 'lingua-libre', label: '(Commons) Lingua Libre' },
+  { value: 'wiktionary', label: '(Commons) Wiktionary' },
+];
+
+/** Source types that expose a URL field. */
+const URL_SOURCE_TYPES: ReadonlySet<string> = new Set(['custom', 'custom-json']);
+
+/** Default source added by the "Add Source" button. */
+function newAudioSource(): AudioSource {
+  return { type: 'jpod101', url: '', voice: '' };
+}
+
+/** Coerce an untrusted stored entry into a complete `AudioSource`. */
+function normalizeAudioSource(raw: unknown): AudioSource {
+  const source = typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : {};
+  const type = typeof source.type === 'string' && AUDIO_SOURCE_TYPES.some(t => t.value === source.type)
+    ? source.type as AudioSourceType
+    : 'jpod101';
+  return {
+    type,
+    url: typeof source.url === 'string' ? source.url : '',
+    voice: typeof source.voice === 'string' ? source.voice : '',
+  };
+}
+
+/** Read the persisted audio sources list, every entry coerced. */
+function readAudioSources(options: Options): AudioSource[] {
+  const raw = readOptionPath(options, AUDIO_SOURCES_PATH);
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeAudioSource);
+}
+
+/** Persist a whole audio sources list through the options tree. */
+function writeAudioSources(options: Options, sources: readonly AudioSource[]): Options {
+  return writeOptionPath(options, AUDIO_SOURCES_PATH, [...sources]);
+}
+
+/** English copy for the audio sources editor (platform-owned, not a dictionary entry). */
+const AUDIO_SOURCES_COPY = {
+  add: 'Add Source',
+  empty: 'No audio sources configured. Add a source to enable audio playback.',
+  remove: 'Delete audio source',
+  reorder: 'Reorder audio source',
+  reorderHint: 'Drag to change the order, or press the up and down arrow keys.',
+  urlPlaceholder: 'http://...',
+} as const;
+
+/**
+ * YomitanAudioSourcesManager — the Audio section's host-owned editor.
+ * ---------------------------------------------------------------------------
+ * Renders the `audio.sources[]` array as an ordered list of source rows: drag
+ * handle + type Select + optional URL input (custom types only) + delete button.
+ * Writes through the whole options tree (`onChange`), which persists.
+ * ---------------------------------------------------------------------------
+ */
+function YomitanAudioSourcesManager({
+  label,
+  description,
+  options,
+  onChange,
+}: ModuleFieldSourceProps) {
+  const sources = readAudioSources(options);
+  const hintId = useId();
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const pointerId = useRef<number | null>(null);
+
+  const commit = useCallback(
+    (next: readonly AudioSource[]) => {
+      onChange(writeAudioSources(options, next));
+    },
+    [onChange, options],
+  );
+
+  const move = useCallback(
+    (from: number, to: number) => {
+      if (to < 0 || to > sources.length - 1 || from === to) return;
+      const next = [...sources];
+      const [item] = next.splice(from, 1);
+      if (item === undefined) return;
+      next.splice(to, 0, item);
+      commit(next);
+      setDragFrom(to);
+    },
+    [sources, commit],
+  );
+
+  const patchSource = useCallback(
+    (index: number, patch: Partial<AudioSource>) => {
+      commit(sources.map((s, at) => (at === index ? { ...s, ...patch } : s)));
+    },
+    [sources, commit],
+  );
+
+  return (
+    <div className="entei-module-list entei-module-audio-sources">
+      <div className="entei-module-list-header">
+        <div className="entei-module-list-header-text">
+          {label !== undefined && label !== '' && (
+            <span className="entei-module-list-title">{label}</span>
+          )}
+          {description !== undefined && description !== '' && (
+            <p className="entei-module-list-description">{description}</p>
+          )}
+        </div>
+        <div className="entei-module-list-toolbar">
+          <SettingsButton
+            icon={Plus}
+            onClick={() => commit([...sources, newAudioSource()])}
+          >
+            {AUDIO_SOURCES_COPY.add}
+          </SettingsButton>
+        </div>
+      </div>
+
+      <p className="entei-sr-only" id={hintId}>
+        {AUDIO_SOURCES_COPY.reorderHint}
+      </p>
+
+      {sources.length === 0 ? (
+        <p className="entei-module-list-empty">{AUDIO_SOURCES_COPY.empty}</p>
+      ) : (
+        <ul className="entei-module-audio-rows">
+          {sources.map((source, index) => {
+            const showUrl = URL_SOURCE_TYPES.has(source.type);
+            const isDragging = dragFrom === index;
+            return (
+              <li
+                key={index}
+                className={
+                  isDragging
+                    ? 'entei-module-audio-row entei-module-list-row--dragging'
+                    : 'entei-module-audio-row'
+                }
+                data-audio-row={index}
+              >
+                <button
+                  type="button"
+                  className="entei-module-list-handle"
+                  aria-label={`${AUDIO_SOURCES_COPY.reorder}: ${index + 1}/${sources.length}`}
+                  aria-describedby={hintId}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    pointerId.current = event.pointerId;
+                    setDragFrom(index);
+                  }}
+                  onPointerMove={(event) => {
+                    if (pointerId.current !== event.pointerId) return;
+                    if (dragFrom === null) return;
+                    const target = document
+                      .elementFromPoint(event.clientX, event.clientY)
+                      ?.closest('[data-audio-row]')
+                      ?.getAttribute('data-audio-row') ?? null;
+                    const to = target === null ? NaN : Number(target);
+                    if (!Number.isInteger(to)) return;
+                    move(dragFrom, to);
+                  }}
+                  onPointerUp={(event) => {
+                    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                      event.currentTarget.releasePointerCapture(event.pointerId);
+                    }
+                    pointerId.current = null;
+                    setDragFrom(null);
+                  }}
+                  onPointerCancel={() => {
+                    pointerId.current = null;
+                    setDragFrom(null);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'ArrowUp') {
+                      event.preventDefault();
+                      move(index, index - 1);
+                      return;
+                    }
+                    if (event.key === 'ArrowDown') {
+                      event.preventDefault();
+                      move(index, index + 1);
+                    }
+                  }}
+                >
+                  <GripVertical size={16} aria-hidden="true" />
+                </button>
+
+                <Select
+                  value={source.type}
+                  onValueChange={(next) => {
+                    if (next === '') return;
+                    patchSource(index, { type: next as AudioSourceType });
+                  }}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="entei-module-audio-select"
+                    aria-label={`Audio source type ${index + 1}`}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AUDIO_SOURCE_TYPES.map(({ value, label: typeLabel }) => (
+                      <SelectItem key={value} value={value}>
+                        {typeLabel}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {showUrl && (
+                  <Input
+                    className="entei-module-input entei-module-audio-url"
+                    value={source.url}
+                    placeholder={AUDIO_SOURCES_COPY.urlPlaceholder}
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-label={`Audio source URL ${index + 1}`}
+                    onChange={(event) =>
+                      patchSource(index, { url: event.target.value })
+                    }
+                  />
+                )}
+
+                <button
+                  type="button"
+                  className="entei-module-list-remove"
+                  aria-label={AUDIO_SOURCES_COPY.remove}
+                  title={AUDIO_SOURCES_COPY.remove}
+                  onClick={() => commit(sources.filter((_, at) => at !== index))}
+                >
+                  <Trash2 size={16} aria-hidden="true" />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Registry
+ * ------------------------------------------------------------------------- */
+
 /** Every data source the app implements, keyed by manifest `source` id. */
 const MODULE_DATA_SOURCES: Readonly<Record<string, ModuleDataSource>> = {
   'yomitan-dictionaries': {
@@ -272,6 +558,7 @@ const MODULE_DATA_SOURCES: Readonly<Record<string, ModuleDataSource>> = {
   'yomitan-scan-inputs': { inputs: ScanningInputManager },
   'yomitan-popup-preview': { field: YomitanPopupPreview },
   'yomitan-related-dictionaries': { field: ModuleRelatedDictionariesSelect },
+  'yomitan-audio-sources': { field: YomitanAudioSourcesManager },
   'jimaku-api-key': { field: JIMAKU_API_KEY_FIELD },
   'jimaku-auto-load': { field: JimakuAutoLoadField },
   'nadeshiko-api-key': { field: NADESHIKO_API_KEY_FIELD },

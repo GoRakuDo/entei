@@ -1640,6 +1640,50 @@ body[data-page='settings'] .entei-main {
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * Yomitan Audio Sources — ordered source rows
+ * ------------------------------------------------------------------------- */
+.entei-module-audio-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.entei-module-audio-row {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8) var(--entei-space-12);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-md);
+  transition:
+    border-color var(--entei-duration-fast) var(--entei-ease-productive),
+    opacity var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-module-audio-select {
+  width: 11rem;
+  max-width: 100%;
+  height: var(--entei-touch-min);
+  flex-shrink: 0;
+}
+
+@media (max-width: 767px) {
+  .entei-module-audio-select {
+    width: 9rem;
+  }
+}
+
+.entei-module-audio-url {
+  flex: 1;
+  min-width: 0;
+  height: var(--entei-touch-min);
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .entei-settings-nav,
