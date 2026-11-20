@@ -1684,6 +1684,12 @@ body[data-page='settings'] .entei-main {
   height: var(--entei-touch-min);
 }
 
+/* Push the remove (trash) button to the right edge of the row regardless of
+   whether the optional URL input is rendered. */
+.entei-module-audio-row .entei-module-list-remove {
+  margin-left: auto;
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .entei-settings-nav,
