@@ -30,6 +30,7 @@ export {
   POPUP_PREVIEW_TERM,
   buildPopupDocument,
   toDataAttributes,
+  type PopupAudioConfig,
 } from '@/modules/yomitan/popup-preview/popup-document';
 export { loadPopupPreviewAssets } from '@/modules/yomitan/popup-preview/popup-assets';
 export { inlinePopupIconUrls } from '@/modules/yomitan/popup-preview/popup-assets';
@@ -68,6 +69,7 @@ export {
 export {
   POPUP_MENU_TEMPLATE_IDS,
   extractPopupMenuTemplates,
+  extractAudioMenuTemplates,
   renderPopupEntriesHtml,
   renderPopupKanjiHtml,
   restoreTextGlosses,

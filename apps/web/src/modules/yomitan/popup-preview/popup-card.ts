@@ -25,11 +25,14 @@ import type { Options } from '@gorakudo/yomitan-headless/settings';
 import {
   buildPopupDocument,
   extractPopupMenuTemplates,
+  extractAudioMenuTemplates,
   renderPopupEntriesHtml,
   renderPopupKanjiHtml,
   resolvePopupAppearance,
+  type PopupAudioConfig,
   type PopupDictionaryInfo,
 } from '@/modules/yomitan/popup-preview';
+import { toAudioSourceInfos } from '@/modules/yomitan/audio/audio-sources';
 import {
   canGoPopupHistoryBack,
   canGoPopupHistoryForward,
@@ -37,6 +40,37 @@ import {
   type PopupHistoryMode,
   type PopupHistoryState,
 } from '@/modules/yomitan/popup-preview/popup-history';
+import { activeProfileOptions } from '@/modules/yomitan/yomitan-preferences';
+
+/**
+ * The frame's audio playback config, from the persisted `audio` options.
+ *
+ * Returns `null` when audio is off or no sources are configured, which the
+ * document renderer turns into "no `#popup-audio-config` script" — the bridge
+ * then leaves the speaker buttons inert rather than playing nothing. Shaped by
+ * `toAudioSourceInfos` so the labels and client-playable flags match `/search/`.
+ */
+function resolvePopupAudioConfig(options: Options): PopupAudioConfig | null {
+  const audio = activeProfileOptions(options).audio;
+  if (typeof audio !== 'object' || audio === null) return null;
+  const sources = toAudioSourceInfos(audio.sources);
+  if (sources.length === 0) return null;
+  return {
+    sources: sources.map((source) => ({
+      index: source.index,
+      type: source.type,
+      url: source.url,
+      name: source.name,
+      nameIndex: source.nameIndex,
+      nameUnique: source.nameUnique,
+      clientPlayable: source.clientPlayable,
+    })),
+    volume:
+      typeof audio.volume === 'number' && Number.isFinite(audio.volume)
+        ? audio.volume
+        : 100,
+  };
+}
 
 /** What one rendered history entry is. */
 export interface PopupCard {
@@ -90,6 +124,12 @@ export async function renderPopupCard(input: PopupCardInput): Promise<PopupCard>
     /* Upstream's own `⋮` menu templates: the frame instantiates them, so the
        entry's debug menu is the extension's markup and not a lookalike. */
     menuTemplates: extractPopupMenuTemplates(templates),
+    /* The speaker button's audio-source menu, and the playback config the frame's
+       bridge script reads (a sandboxed iframe cannot reach the host's options
+       tree). Built from the SAME `audio.sources` the /search/ page uses, so both
+       surfaces list and resolve sources identically. */
+    audioMenuTemplates: extractAudioMenuTemplates(templates),
+    audioConfig: resolvePopupAudioConfig(options),
   };
   const item = currentPopupHistoryItem(history);
   // A history with no current entry is not a state `popup-history` produces; an

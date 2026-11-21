@@ -72,6 +72,36 @@ html[data-theme=dark] {
 }
 `.trim();
 
+/**
+ * The speaker buttons' playback config, embedded into the frame as JSON.
+ *
+ * A SANDBOXED iframe (`allow-scripts`, no `allow-same-origin`) cannot reach the
+ * host's Yomitan options tree, so the host hands the frame the ONE thing its
+ * bridge script needs to play audio: the configured sources (already shaped and
+ * labelled by `audio-sources.ts`) and the volume. The term/reading themselves the
+ * frame reads off its own card DOM (the headword), so they do not cross the
+ * boundary.
+ */
+export interface PopupAudioSource {
+  index: number;
+  type: string;
+  url: string;
+  name: string;
+  /** Which duplicate of a shared `type` this is (0-based), from `audio-sources`. */
+  nameIndex: number;
+  /** `name` alone identifies this source (no sibling of the same type). */
+  nameUnique: boolean;
+  /** Whether the frame can resolve this source on its own (see audio-resolver). */
+  clientPlayable: boolean;
+}
+
+/** `audioConfig` — the frame's audio playback config (see module note above). */
+export interface PopupAudioConfig {
+  sources: readonly PopupAudioSource[];
+  /** Stored volume, 0–100. */
+  volume: number;
+}
+
 /** What the document is assembled from. */
 export interface PopupDocumentInput {
   /** Yomitan's own stylesheets, concatenated in cascade order. */
@@ -113,6 +143,19 @@ export interface PopupDocumentInput {
    * without them gets.
    */
   menuTemplates?: string;
+  /**
+   * Upstream's `audio-button-popup-menu` templates (`popup-entries` extracts
+   * them), embedded so the frame can instantiate the speaker button's own
+   * audio-source menu. An empty string leaves the speaker button playing audio
+   * without a menu (a template set without them).
+   */
+  audioMenuTemplates?: string;
+  /**
+   * The speaker buttons' playback config: the configured sources and the volume.
+   * Embedded as JSON the frame's bridge script reads, because a sandboxed iframe
+   * cannot reach the host's options tree. `null` disables audio in the frame.
+   */
+  audioConfig?: PopupAudioConfig | null;
   /**
    * What to draw when `entriesHtml` is empty.
    *
@@ -354,7 +397,236 @@ const FRAME_BRIDGE_SCRIPT = `
         window.addEventListener('resize', onWindowResize, false);
     }
 
+    /* ----------------------------------------------------------------
+       Audio playback + the speaker button's source menu.
+
+       The host hands the configured sources and volume in a JSON script
+       (#popup-audio-config), because a sandboxed frame cannot read the host's
+       options tree. The term/reading come off the card DOM (the headword), so
+       they never cross the boundary. Only the client-resolvable sources actually
+       play (jpod101 CDN, the user's custom URL); the rest are listed but resolve
+       to nothing here, exactly like the /search/ page's resolver.
+       -------------------------------------------------------------- */
+    var AUDIO_CONFIG = null;
+    var AUDIO_MENU_CONTAINER_ID = 'audio-button-popup-menu-template';
+    var AUDIO_MENU_ITEM_ID = 'audio-button-popup-menu-item-template';
+    var PLAY_AUDIO_TITLE = 'Play audio (Alt + P)';
+    var currentAudio = null;
+    var activeAudioMenu = null;
+    /* The source that last played per headword key, so a plain click replays it
+       (the same "resolved primary" memory the /search/ controller keeps). */
+    var resolvedPrimary = {};
+
+    function primaryKey(term, reading) { return term + '\u0000' + reading; }
+
+    /* The menu label for one source: the friendly name alone when it is unique,
+       else the name with its 1-based duplicate number ("Custom URL 1"). */
+    function sourceLabel(source) {
+        return source.nameUnique === true
+            ? source.name
+            : source.name + ' ' + (source.nameIndex + 1);
+    }
+
+    function readAudioConfig() {
+        var node = document.getElementById('popup-audio-config');
+        if (node === null) { return null; }
+        try { return JSON.parse(node.textContent || '{}'); } catch (e) { return null; }
+    }
+
+    /* Upstream's jpod101 rule: an entirely-kana "term" is really the reading, so
+       it goes in the kana param and kanji is left empty. KANA_RANGES is upstream's own
+       kana span (hiragana + katakana), inlined so the frame needs no host code. */
+    function isStringEntirelyKana(str) {
+        if (str.length === 0) { return false; }
+        for (var i = 0; i < str.length; ++i) {
+            var c = str.codePointAt(i);
+            var isKana = (c >= 0x3040 && c <= 0x309f) || (c >= 0x30a0 && c <= 0x30ff);
+            if (!isKana) { return false; }
+        }
+        return true;
+    }
+
+    function buildAudioUrl(source, term, reading) {
+        if (source.type === 'jpod101') {
+            var kanji = term;
+            var kana = reading;
+            if (reading === term && isStringEntirelyKana(term)) { kanji = ''; kana = term; }
+            var params = new URLSearchParams();
+            if (kanji.length > 0) { params.set('kanji', kanji); }
+            if (kana.length > 0) { params.set('kana', kana); }
+            return 'https://assets.languagepod101.com/dictionary/japanese/audiomp3.php?' + params.toString();
+        }
+        if (source.type === 'custom' && typeof source.url === 'string' && source.url.length > 0) {
+            var data = { term: term, reading: reading, language: 'ja' };
+            return source.url.replace(/\{([^}]*)\}/g, function (m0, m1) {
+                return Object.prototype.hasOwnProperty.call(data, m1) ? data[m1] : m0;
+            });
+        }
+        return null;
+    }
+
+    function stopAudio() {
+        if (currentAudio !== null) { currentAudio.pause(); currentAudio = null; }
+    }
+
+    function playUrl(url) {
+        stopAudio();
+        var audio = new Audio(url);
+        audio.volume = (AUDIO_CONFIG && isFinite(AUDIO_CONFIG.volume))
+            ? Math.max(0, Math.min(1, AUDIO_CONFIG.volume / 100)) : 1;
+        currentAudio = audio;
+        var played = audio.play();
+        if (played !== undefined) {
+            played.catch(function () { /* autoplay policy / interrupted: ignore. */ });
+        }
+    }
+
+    /* A headword's base term (ruby base, rt readings removed) and reading. */
+    function headwordOf(button) {
+        var entry = button.closest('.entry');
+        if (entry === null) { return null; }
+        var headword = button.closest('.headword');
+        var scope = headword !== null ? headword : entry.querySelector('.headword');
+        if (scope === null) { return null; }
+        var termNode = scope.querySelector('.headword-term');
+        if (termNode === null) { return null; }
+        var clone = termNode.cloneNode(true);
+        var rts = clone.querySelectorAll('rt');
+        for (var i = 0; i < rts.length; ++i) { rts[i].parentNode.removeChild(rts[i]); }
+        var term = (clone.textContent || '').trim();
+        var readingNode = scope.querySelector('.headword-reading');
+        var reading = readingNode !== null ? (readingNode.textContent || '').trim() : '';
+        if (term === '') { return null; }
+        return { term: term, reading: reading };
+    }
+
+    function playFromButton(button, preferredIndex) {
+        if (AUDIO_CONFIG === null) { return; }
+        var headword = headwordOf(button);
+        if (headword === null) { return; }
+        var sources = AUDIO_CONFIG.sources || [];
+        var key = primaryKey(headword.term, headword.reading);
+        var remembered = resolvedPrimary[key];
+        var source = null;
+        if (typeof preferredIndex === 'number' && preferredIndex >= 0 && preferredIndex < sources.length) {
+            source = sources[preferredIndex];
+        } else if (typeof remembered === 'number' && remembered >= 0 && remembered < sources.length) {
+            source = sources[remembered];
+        } else {
+            source = sources.length > 0 ? sources[0] : null;
+        }
+        if (source === null) { return; }
+        var url = buildAudioUrl(source, headword.term, headword.reading);
+        if (url === null) {
+            button.title = PLAY_AUDIO_TITLE + '\nCould not find audio (' + sourceLabel(source) + ')';
+            return;
+        }
+        playUrl(url);
+        resolvedPrimary[key] = source.index;
+        button.title = PLAY_AUDIO_TITLE + '\nFrom ' + sourceLabel(source);
+    }
+
+    function closeAudioMenu() {
+        if (activeAudioMenu === null) { return; }
+        var menu = activeAudioMenu;
+        activeAudioMenu = null;
+        menu.container.removeEventListener('click', onAudioMenuContainerClick, false);
+        window.removeEventListener('resize', onWindowResize, false);
+        if (menu.container.parentNode !== null) {
+            menu.container.parentNode.removeChild(menu.container);
+        }
+    }
+
+    function onAudioMenuContainerClick(event) {
+        if (activeAudioMenu === null || event.currentTarget !== event.target) { return; }
+        closeAudioMenu();
+        event.stopPropagation();
+        event.preventDefault();
+    }
+
+    function openAudioMenu(source) {
+        if (AUDIO_CONFIG === null) { return; }
+        var sources = AUDIO_CONFIG.sources || [];
+        if (sources.length === 0) { return; }
+        closeAudioMenu();
+        var template = document.getElementById(AUDIO_MENU_CONTAINER_ID);
+        var itemTemplate = document.getElementById(AUDIO_MENU_ITEM_ID);
+        var host = document.getElementById('popup-menus');
+        if (template === null || itemTemplate === null || host === null) { return; }
+        var container = template.content.firstElementChild.cloneNode(true);
+        var body = container.querySelector('.popup-menu-body');
+        if (body === null) { return; }
+        for (var i = 0; i < sources.length; ++i) {
+            var src = sources[i];
+            var item = itemTemplate.content.firstElementChild.cloneNode(true);
+            var label = item.querySelector('.popup-menu-item-label');
+            if (label !== null) { label.textContent = sourceLabel(src); }
+            var setPrimary = item.querySelector('.popup-menu-item-set-primary-audio-button');
+            if (setPrimary !== null) { setPrimary.hidden = true; }
+            item.setAttribute('data-index', String(src.index));
+            body.appendChild(item);
+        }
+        host.appendChild(container);
+        activeAudioMenu = { container: container, source: source };
+        positionMenu(container, source);
+        container.focus();
+        container.addEventListener('click', onAudioMenuContainerClick, false);
+        window.addEventListener('resize', onWindowResize, false);
+        var items = body.querySelectorAll('.popup-menu-item');
+        for (var j = 0; j < items.length; ++j) {
+            items[j].addEventListener('click', onAudioMenuItemClick, false);
+        }
+    }
+
+    function onAudioMenuItemClick(event) {
+        var item = event.currentTarget;
+        if (activeAudioMenu === null || item.disabled) { return; }
+        var sourceButton = activeAudioMenu.source;
+        var index = Number.parseInt(item.getAttribute('data-index'), 10);
+        closeAudioMenu();
+        event.stopPropagation();
+        event.preventDefault();
+        if (Number.isFinite(index)) { playFromButton(sourceButton, index); }
+    }
+
+    /* The buttons are wired once: the frame's card set is drawn once per document
+       (a history step redraws the WHOLE document), so a direct bind is enough and
+       avoids a second delegated branch in the click handler below. */
+    function bindAudioButtons() {
+        AUDIO_CONFIG = readAudioConfig();
+        if (AUDIO_CONFIG === null) { return; }
+        var buttons = document.querySelectorAll('.action-button[data-action=play-audio]');
+        for (var i = 0; i < buttons.length; ++i) {
+            (function (button) {
+                button.title = PLAY_AUDIO_TITLE;
+                button.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (event.shiftKey) { openAudioMenu(button); }
+                    else { playFromButton(button, null); }
+                }, false);
+                button.addEventListener('contextmenu', function (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openAudioMenu(button);
+                }, false);
+            })(buttons[i]);
+        }
+    }
+
     document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+            if (activeAudioMenu !== null) { closeAudioMenu(); }
+        }
+        if (event.altKey && !event.ctrlKey && !event.metaKey && event.code === 'KeyP') {
+            event.preventDefault();
+            var entry = document.querySelector('.entry-current') || document.querySelector('.entry[data-index]');
+            if (entry !== null) {
+                var button = entry.querySelector('.action-button[data-action=play-audio]');
+                if (button !== null) { playFromButton(button, null); }
+            }
+            return;
+        }
         if (activeMenu === null) { return; }
         if (event.key === 'Escape') {
             event.preventDefault();
@@ -386,6 +658,8 @@ const FRAME_BRIDGE_SCRIPT = `
             case 'navigate-next': send({ type: 'next' }); break;
         }
     });
+
+    bindAudioButtons();
 })();
 `.trim();
 
@@ -409,6 +683,8 @@ export function buildPopupDocument(input: PopupDocumentInput): string {
     hasNavigationPrevious = false,
     hasNavigationNext = false,
     menuTemplates = '',
+    audioMenuTemplates = '',
+    audioConfig = null,
     emptyState = 'placeholder',
   } = input;
   const style = fontStyle === '' ? '' : ` style="${escapeAttribute(fontStyle)}"`;
@@ -445,9 +721,25 @@ ${sheets.join('\n')}
 </div></div></div></div><div class="content-sidebar scrollbar" id="content-sidebar"><div class="content-sidebar-inner"><div class="content-sidebar-top-pre"><button type="button" class="sidebar-button danger" data-action="close" id="close-button" title="Close popup"><span class="sidebar-button-icon icon" data-icon="cross"></span></button></div><div class="content-sidebar-top"><button type="button" class="sidebar-button" data-action="navigate-previous"${hasNavigationPrevious ? '' : ' disabled'} id="navigate-previous-button" title="Previous definition"><span class="sidebar-button-icon icon" data-icon="left-chevron"></span></button><button type="button" class="sidebar-button" data-action="navigate-next"${hasNavigationNext ? '' : ' disabled'} id="navigate-next-button" title="Next definition"><span class="sidebar-button-icon icon" data-icon="right-chevron"></span></button></div></div></div></div>
 <div id="popup-menus"></div>
 ${menuTemplates}
+${audioMenuTemplates}
+${renderAudioConfig(audioConfig)}
 <script>
 ${FRAME_BRIDGE_SCRIPT}
 </script>
 </body>
 </html>`;
+}
+
+/**
+ * The frame's audio config, embedded as a JSON `<script>` the bridge reads.
+ *
+ * A `<script type="application/json">` is inert (never executed) and is the
+ * standard data-to-frame channel. The closing-tag neutralisation below keeps a
+ * crafted source name from breaking out of the element; the JSON itself is
+ * generated from shaped, host-validated source records, not raw user text.
+ */
+function renderAudioConfig(audioConfig: PopupAudioConfig | null): string {
+  if (audioConfig === null) return '';
+  const json = JSON.stringify(audioConfig).replace(/<\//g, '<\\/');
+  return `<script type="application/json" id="popup-audio-config">${json}</script>`;
 }

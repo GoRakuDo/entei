@@ -275,3 +275,31 @@ export function extractPopupMenuTemplates(templates: string): string {
   }
   return markup.join('\n');
 }
+
+/**
+ * The two `<template>`s the speaker button's audio-source menu is built from,
+ * under upstream's own names (`ext/templates-display.html`). Lifted into the
+ * iframe document next to the entry's `⋮` templates so the audio menu the popup
+ * renders is upstream's own markup, restyled by upstream's own sheets — for the
+ * same reason `extractPopupMenuTemplates` lifts the `⋮` set.
+ *
+ * PURE and total: an empty string comes back when the template set does not carry
+ * them (an older vendored file), which is the frame's signal to leave the speaker
+ * button playing audio without a menu rather than opening an empty box.
+ */
+const AUDIO_MENU_TEMPLATE_IDS = [
+  'audio-button-popup-menu-template',
+  'audio-button-popup-menu-item-template',
+] as const;
+
+/** Lift the audio-source menu's `<template>`s out of `templates-display.html`. */
+export function extractAudioMenuTemplates(templates: string): string {
+  const parsed = new DOMParser().parseFromString(templates, 'text/html');
+  const markup: string[] = [];
+  for (const id of AUDIO_MENU_TEMPLATE_IDS) {
+    const node = parsed.getElementById(id);
+    if (node === null) return '';
+    markup.push(node.outerHTML);
+  }
+  return markup.join('\n');
+}

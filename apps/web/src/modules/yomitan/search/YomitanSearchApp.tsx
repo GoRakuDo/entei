@@ -111,6 +111,11 @@ import {
   type SearchOutcome,
 } from '@/modules/yomitan/search/search-query';
 import { useClipboardMonitor } from '@/modules/yomitan/search/use-clipboard-monitor';
+import {
+  toAudioSourceInfos,
+  type AudioSourceInfo,
+} from '@/modules/yomitan/audio/audio-sources';
+import { YomitanAudioController } from '@/modules/yomitan/search/audio-controller';
 
 /**
  * This page's own English strings.
@@ -198,6 +203,10 @@ interface SearchOptions {
    * page is the surface that finally acts on it.
    */
   clipboardMonitor: boolean;
+  /** `audio.sources` — the speaker buttons' playback sources, already shaped. */
+  audioSources: AudioSourceInfo[];
+  /** `audio.volume`, 0–100. */
+  audioVolume: number;
 }
 
 /** Upstream's own default for `general.enableWanakana` (`settings/defaults.ts`). */
@@ -208,6 +217,9 @@ const STICKY_HEADER_DEFAULT = false;
 
 /** Upstream's own default for `clipboard.enableSearchPageMonitor` (off). */
 const CLIPBOARD_MONITOR_DEFAULT = false;
+
+/** Upstream's own default for `audio.volume` (100). */
+const AUDIO_VOLUME_DEFAULT = 100;
 
 /**
  * Read the page's appearance and IME setting from the persisted options.
@@ -228,6 +240,11 @@ function readSearchOptions(): SearchOptions {
       stickyHeader: profile.general.stickySearchHeader,
       queryParser: readQueryParserSettings(profile),
       clipboardMonitor: profile.clipboard.enableSearchPageMonitor,
+      audioSources: toAudioSourceInfos(profile.audio?.sources),
+      audioVolume:
+        typeof profile.audio?.volume === 'number' && Number.isFinite(profile.audio.volume)
+          ? profile.audio.volume
+          : AUDIO_VOLUME_DEFAULT,
     };
   } catch {
     return {
@@ -237,6 +254,8 @@ function readSearchOptions(): SearchOptions {
       stickyHeader: STICKY_HEADER_DEFAULT,
       queryParser: DEFAULT_QUERY_PARSER_SETTINGS,
       clipboardMonitor: CLIPBOARD_MONITOR_DEFAULT,
+      audioSources: [],
+      audioVolume: AUDIO_VOLUME_DEFAULT,
     };
   }
 }
@@ -264,6 +283,8 @@ export function YomitanSearchApp() {
     stickyHeader: STICKY_HEADER_DEFAULT,
     queryParser: DEFAULT_QUERY_PARSER_SETTINGS,
     clipboardMonitor: CLIPBOARD_MONITOR_DEFAULT,
+    audioSources: [],
+    audioVolume: AUDIO_VOLUME_DEFAULT,
   });
   const [assetsReady, setAssetsReady] = useState(false);
   const [hasDictionaries, setHasDictionaries] = useState(false);
@@ -288,6 +309,10 @@ export function YomitanSearchApp() {
   const parserRef = useRef<HTMLDivElement | null>(null);
   const displayRef = useRef<SearchDisplay | null>(null);
   const dictionariesRef = useRef<readonly PopupDictionaryInfo[]>([]);
+  /** Upstream's `#popup-menus` — the audio-source menu is drawn into it. */
+  const popupMenusRef = useRef<HTMLDivElement | null>(null);
+  /** The speaker-button controller, rebound after every card redraw. */
+  const audioControllerRef = useRef<YomitanAudioController | null>(null);
   /** Guards a slow lookup from overwriting a newer one. */
   const epochRef = useRef(0);
   /**
@@ -440,7 +465,33 @@ export function YomitanSearchApp() {
       console.error('[entei] Yomitan could not draw the search results', error);
     }
     container.replaceChildren(fragment);
-  }, [entries, assetsReady]);
+    /* Bind the speaker buttons AFTER the cards are in the document: the
+       controller reads the drawn headwords (term / reading) and the menu
+       templates land in the page's `#popup-menus`. Rebound on every redraw, and
+       the previous controller's listeners are disposed first so a redraw never
+       leaves stale buttons wired. */
+    audioControllerRef.current?.dispose();
+    audioControllerRef.current = null;
+    const menuContainer = popupMenusRef.current;
+    if (menuContainer !== null && options.audioSources.length > 0) {
+      const controller = new YomitanAudioController(container, {
+        sources: options.audioSources,
+        volume: options.audioVolume,
+        menuContainer,
+      });
+      controller.bind();
+      audioControllerRef.current = controller;
+    }
+  }, [entries, assetsReady, options.audioSources, options.audioVolume]);
+
+  /* Unbind on unmount so the document-level Alt+P / outside-press listeners and
+     any playing audio do not outlive the page. */
+  useEffect(() => {
+    return () => {
+      audioControllerRef.current?.dispose();
+      audioControllerRef.current = null;
+    };
+  }, []);
 
   /* ------------------------------------------------------------------------
    * The furigana header — upstream's `#query-parser-container`.
@@ -882,6 +933,12 @@ export function YomitanSearchApp() {
           </div>
         </div>
       </div>
+
+      {/* Upstream's `#popup-menus`: the audio-source menu is instantiated into
+          this container and positioned against the speaker button that opened it.
+          The vendored `material.css` styles `.popup-menu-container` as a floating
+          overlay, so it paints above the cards without re-parenting anything. */}
+      <div id="popup-menus" ref={popupMenusRef} />
     </div>
   );
 }
