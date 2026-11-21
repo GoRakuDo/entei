@@ -308,6 +308,12 @@ body[data-page='settings'] .entei-main {
 /* Section card — one collapsible card per manifest section. The shell (flex
    stack, 24px padding, surface, hairline, radius) comes from the shared
    .entei-settings-section-card; this class only adds the accordion behaviour. */
+/* Module section cards inherit .entei-settings-section-card's flex+gap;
+   reset gap to 0 here to avoid double-gap between header toggle and body. */
+.entei-module-section {
+  gap: 0;
+}
+
 .entei-module-section-heading {
   margin: 0;
 }
@@ -843,7 +849,7 @@ body[data-page='settings'] .entei-main {
 .entei-module-list-header {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--entei-space-8) var(--entei-space-24);
 }

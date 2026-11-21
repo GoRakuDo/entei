@@ -31,7 +31,7 @@
  */
 
 import { useCallback, useRef, useState, useId, type ComponentType } from 'react';
-import { GripVertical, Plus, Trash2 } from 'lucide-react';
+import { FileHeadphone, GripVertical, Trash2 } from 'lucide-react';
 import type {
   AudioSource,
   AudioSourceType,
@@ -411,7 +411,7 @@ function YomitanAudioSourcesManager({
         </div>
         <div className="entei-module-list-toolbar">
           <SettingsButton
-            icon={Plus}
+            icon={FileHeadphone}
             onClick={() => commit([...sources, newAudioSource()])}
           >
             {AUDIO_SOURCES_COPY.add}
