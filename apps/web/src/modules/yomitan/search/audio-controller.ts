@@ -93,6 +93,10 @@ export class YomitanAudioController {
   private current: HTMLAudioElement | null = null;
   /** The source that worked per headword key, so a plain click replays it. */
   private readonly primary = new Map<string, ResolvedPrimary>();
+  /** The user's explicit "Use as audio for Anki card" choice per headword key.
+      Separate from `primary` so the playback auto-primary and the Anki
+      card-audio pin stay independent (the popup keeps the same split). */
+  private readonly ankiPrimary = new Map<string, number>();
   /** The one open menu, closed before another opens. */
   private openMenu: { container: HTMLElement; source: HTMLElement } | null = null;
 
@@ -271,6 +275,12 @@ export class YomitanAudioController {
     ) {
       return;
     }
+    const target = this.headwordTarget(button);
+    const primaryKey =
+      target !== null ? `${target.term}\u0000${target.reading}` : null;
+    const ankiPrimaryIndex =
+      primaryKey !== null ? this.ankiPrimary.get(primaryKey) : undefined;
+
     const menuContainer = (
       template.content.firstElementChild as HTMLElement
     ).cloneNode(true) as HTMLElement;
@@ -282,12 +292,26 @@ export class YomitanAudioController {
       ).cloneNode(true) as HTMLElement;
       const label = item.querySelector<HTMLElement>('.popup-menu-item-label');
       if (label !== null) label.textContent = audioSourceLabel(source);
-      // The Anki "set primary" affordance is upstream's card-workflow feature and
-      // is not wired here; hidden rather than removed so the template stays intact.
-      const setPrimary = item.querySelector<HTMLElement>(
+
+      // "Use as audio for Anki card" button: shown alongside each source so the
+      // user can pin it as the card-audio primary (upstream's setPrimaryAudio).
+      const setPrimary = item.querySelector<HTMLButtonElement>(
         '.popup-menu-item-set-primary-audio-button',
       );
-      if (setPrimary !== null) setPrimary.hidden = true;
+      if (setPrimary !== null) {
+        if (ankiPrimaryIndex === source.index) {
+          item.setAttribute('data-is-primary-card-audio', 'true');
+        }
+        setPrimary.addEventListener('click', (event) => {
+          event.stopPropagation();
+          event.preventDefault();
+          if (primaryKey !== null) {
+            this.ankiPrimary.set(primaryKey, source.index);
+          }
+          this.closeMenu();
+        }, false);
+      }
+
       item.dataset.index = `${source.index}`;
       if (!source.clientPlayable) {
         // Configured but not client-resolvable: still listed, marked so the
@@ -299,12 +323,13 @@ export class YomitanAudioController {
     this.menuContainer.appendChild(menuContainer);
     this.openMenu = { container: menuContainer, source: button };
     this.positionMenu(menuContainer, button);
-    for (const item of body.querySelectorAll<HTMLElement>('.popup-menu-item')) {
-      item.addEventListener('click', (event) => {
+    for (const audioButton of body.querySelectorAll<HTMLElement>('.popup-menu-item-audio-button')) {
+      audioButton.addEventListener('click', (event) => {
         event.stopPropagation();
         event.preventDefault();
         this.closeMenu();
-        const index = Number.parseInt(item.dataset.index ?? '', 10);
+        const group = audioButton.closest<HTMLElement>('.popup-menu-item-group');
+        const index = Number.parseInt(group?.dataset.index ?? '', 10);
         if (Number.isFinite(index)) {
           void this.playFromButton(button, index);
         }

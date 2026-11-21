@@ -211,4 +211,27 @@ describe('popup-document — audio config + menu templates', () => {
   it('extractAudioMenuTemplates returns "" when the templates are absent', () => {
     expect(extractAudioMenuTemplates('<html><body></body></html>')).toBe('');
   });
+
+  it('audio menu item template carries the Anki-card setPrimary button with upstream tooltip', () => {
+    expect(templates).toContain('popup-menu-item-set-primary-audio-button');
+    expect(templates).toContain('data-menu-action="setPrimaryAudio"');
+    expect(templates).toContain('title="Use as audio for Anki card"');
+    expect(templates).toContain('data-icon="note-card"');
+  });
+
+  it('bridge script no longer hides the setPrimary button in the popup document', () => {
+    const html = buildPopupDocument({
+      ...baseInput,
+      audioConfig: {
+        sources: [{ index: 0, type: 'jpod101', url: '', name: 'JapanesePod101', nameIndex: 0, nameUnique: true, clientPlayable: true }],
+        volume: 80,
+      },
+      audioMenuTemplates: extractAudioMenuTemplates(templates),
+    });
+    // The old hiding line must be gone from the bridge script.
+    expect(html).not.toContain('setPrimary.hidden = true');
+    // The new Anki-primary wiring must be present.
+    expect(html).toContain('ankiPrimary');
+    expect(html).toContain('data-is-primary-card-audio');
+  });
 });

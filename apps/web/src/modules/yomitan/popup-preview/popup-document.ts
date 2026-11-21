@@ -416,6 +416,10 @@ const FRAME_BRIDGE_SCRIPT = `
     /* The source that last played per headword key, so a plain click replays it
        (the same "resolved primary" memory the /search/ controller keeps). */
     var resolvedPrimary = {};
+    /* The user's explicit "Use as audio for Anki card" choice per headword key.
+       Separate from resolvedPrimary so the playback auto-primary and the Anki
+       card-audio pin stay independent. */
+    var ankiPrimary = {};
 
     function primaryKey(term, reading) { return term + '\u0000' + reading; }
 
@@ -556,13 +560,30 @@ const FRAME_BRIDGE_SCRIPT = `
         var container = template.content.firstElementChild.cloneNode(true);
         var body = container.querySelector('.popup-menu-body');
         if (body === null) { return; }
+        var headword = headwordOf(source);
+        var pk = headword !== null ? primaryKey(headword.term, headword.reading) : null;
+        var ankiPrimIdx = pk !== null ? ankiPrimary[pk] : undefined;
         for (var i = 0; i < sources.length; ++i) {
             var src = sources[i];
             var item = itemTemplate.content.firstElementChild.cloneNode(true);
             var label = item.querySelector('.popup-menu-item-label');
             if (label !== null) { label.textContent = sourceLabel(src); }
+            /* "Use as audio for Anki card" button: shown and wired so the user
+               can pin the source (upstream's setPrimaryAudio action). */
             var setPrimary = item.querySelector('.popup-menu-item-set-primary-audio-button');
-            if (setPrimary !== null) { setPrimary.hidden = true; }
+            if (setPrimary !== null) {
+                if (ankiPrimIdx === src.index) {
+                    item.setAttribute('data-is-primary-card-audio', 'true');
+                }
+                (function (sp, srcIdx, key) {
+                    sp.addEventListener('click', function (event) {
+                        event.stopPropagation();
+                        event.preventDefault();
+                        if (key !== null) { ankiPrimary[key] = srcIdx; }
+                        closeAudioMenu();
+                    }, false);
+                })(setPrimary, src.index, pk);
+            }
             item.setAttribute('data-index', String(src.index));
             body.appendChild(item);
         }
@@ -572,7 +593,7 @@ const FRAME_BRIDGE_SCRIPT = `
         container.focus();
         container.addEventListener('click', onAudioMenuContainerClick, false);
         window.addEventListener('resize', onWindowResize, false);
-        var items = body.querySelectorAll('.popup-menu-item');
+        var items = body.querySelectorAll('.popup-menu-item-audio-button');
         for (var j = 0; j < items.length; ++j) {
             items[j].addEventListener('click', onAudioMenuItemClick, false);
         }
@@ -582,7 +603,8 @@ const FRAME_BRIDGE_SCRIPT = `
         var item = event.currentTarget;
         if (activeAudioMenu === null || item.disabled) { return; }
         var sourceButton = activeAudioMenu.source;
-        var index = Number.parseInt(item.getAttribute('data-index'), 10);
+        var group = item.closest('.popup-menu-item-group');
+        var index = Number.parseInt(group ? group.getAttribute('data-index') : '', 10);
         closeAudioMenu();
         event.stopPropagation();
         event.preventDefault();
