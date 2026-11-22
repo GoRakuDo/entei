@@ -458,10 +458,35 @@ export interface Dictionary {
     general: string;
     appearance: string;
     module: string;
+    /** Dedicated Anki nav item (sidebar, between Appearance and Modules). */
+    anki: string;
     /** Module sub-items (sidebar children + mobile submenu rows). */
     yomitan: string;
     jimaku: string;
     nadeshiko: string;
+  };
+  /** /settings/ Anki page — “Anki Connection” card (AnkiConnect server). */
+  ankiConnection: {
+    /** Card heading title (Lucide RadioTower). */
+    title: string;
+    /** Row 1 — AnkiConnect server URL. */
+    serverLabel: string;
+    serverPlaceholder: string;
+    /** Dynamic connection-status line under the URL label. */
+    statusConnected: string;
+    statusDisconnected: string;
+    /** Accessible label prefix for the live status region. */
+    connectionStatusLabel: string;
+    /** Row 2 — API key (password-masked). */
+    apiKeyLabel: string;
+    apiKeyDescription: string;
+    apiKeyPlaceholder: string;
+    /** Row 3 — idle download timeout (ms). */
+    downloadTimeoutLabel: string;
+    downloadTimeoutDescription: string;
+    /** Row 4 — force Anki sync when adding a card. */
+    forceSyncLabel: string;
+    forceSyncDescription: string;
   };
   language: {
     selectLabel: string;

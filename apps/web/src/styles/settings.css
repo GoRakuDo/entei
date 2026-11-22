@@ -541,6 +541,43 @@ body[data-page='settings'] .entei-main {
   font-variant-numeric: tabular-nums;
 }
 
+/* ==========================================================================
+   ANKI CONNECTION CARD (/settings/ Anki page)
+   ===========================================================================
+   Row 1's description is a LIVE connection status (Connected / Disconnected),
+   so the icon + text share one status color set inline by the component (green
+   oklch(65% 0.17 145deg) connected / red oklch(60% 0.22 25deg) disconnected —
+   hand-drawn spec). Layout mirrors .entei-module-field so the URL input docks
+   into the same 15rem right-hand control column as the rows below it. */
+
+.entei-anki-connection-status {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  margin: 0;
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  /* Color (text + icon) is set inline from the live status. */
+}
+
+.entei-anki-connection-status-icon {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  /* Inherit the status color — the component styles the <p>, not the icon. */
+  color: inherit;
+}
+
+/* The Force-sync switch docks to the right edge of the control column on
+   desktop, matching the right-aligned inputs above it (hand-drawn spec).
+   Mobile stays left-aligned with the stacked rows. */
+@media (min-width: 768px) {
+  .entei-anki-connection-card .entei-module-field--switch .entei-module-field-control {
+    justify-content: flex-end;
+  }
+}
+
 .entei-module-textarea {
   width: 100%;
   min-height: 7rem;

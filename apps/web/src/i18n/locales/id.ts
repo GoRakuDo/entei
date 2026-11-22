@@ -404,9 +404,27 @@ export const id: Dictionary = {
     general: 'Umum',
     appearance: 'Tampilan',
     module: 'Modul',
+    anki: 'Anki',
     yomitan: 'Yomitan',
     jimaku: 'Jimaku.cc',
     nadeshiko: 'Nadeshiko',
+  },
+  ankiConnection: {
+    title: 'Koneksi Anki',
+    serverLabel: 'URL Server AnkiConnect',
+    serverPlaceholder: 'http://127.0.0.1:8765',
+    statusConnected: 'Status: Terhubung',
+    statusDisconnected: 'Status: Terputus',
+    connectionStatusLabel: 'Status koneksi AnkiConnect',
+    apiKeyLabel: 'Kunci API',
+    apiKeyDescription: 'Kirimkan nilai rahasia ke panggilan API AnkiConnect',
+    apiKeyPlaceholder: 'Kosongkan jika tanpa kunci',
+    downloadTimeoutLabel: 'Batas waktu unduh menganggur (dalam md)',
+    downloadTimeoutDescription:
+      'Waktu maksimum sebelum unduhan menganggur dibatalkan; 0 = tanpa batas.',
+    forceSyncLabel: 'Paksa sinkronisasi Anki saat menambah kartu',
+    forceSyncDescription:
+      'Dapat bermasalah saat koneksi lambat atau berkuota.',
   },
   language: {
     selectLabel: 'Bahasa',

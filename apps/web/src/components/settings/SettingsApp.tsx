@@ -29,6 +29,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AnkiConnectionCard } from '@/components/settings/AnkiConnectionCard';
 import {
   ArrowLeft,
   Blocks,
@@ -48,6 +49,7 @@ import {
   Puzzle,
   type LucideIcon,
 } from 'lucide-react';
+import { PlayingCardsFan } from '@/components/settings/PlayingCardsFan';
 import { AnkiFieldsTab } from '@/components/player/AnkiFieldsTab';
 import {
   SubtitleAppearanceTab,
@@ -95,7 +97,7 @@ const DEFAULT_SUBTITLE_SETTINGS: SubtitleAppearanceSettings = {
 };
 
 /** Top-level settings groups. */
-type SettingsGroup = 'general' | 'appearance' | 'module';
+type SettingsGroup = 'general' | 'appearance' | 'anki' | 'module';
 
 /**
  * Which module page is open (`item === null` = the Modules landing grid).
@@ -110,7 +112,12 @@ interface SettingsSelection {
   item: string | null;
 }
 
-const VALID_GROUPS: readonly SettingsGroup[] = ['general', 'appearance', 'module'];
+const VALID_GROUPS: readonly SettingsGroup[] = [
+  'general',
+  'appearance',
+  'anki',
+  'module',
+];
 
 /** Lucide icon per manifest `icon` name (manifests stay serializable). */
 const MODULE_ICONS: Record<string, LucideIcon> = {
@@ -399,9 +406,10 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
       [
         { id: 'general' as const, label: settings.general, Icon: Globe },
         { id: 'appearance' as const, label: settings.appearance, Icon: Palette },
+        { id: 'anki' as const, label: settings.anki, Icon: PlayingCardsFan },
         { id: 'module' as const, label: settings.module, Icon: Blocks },
       ],
-    [settings.general, settings.appearance, settings.module],
+    [settings.general, settings.appearance, settings.anki, settings.module],
   );
 
   /* Sidebar submenu rows — one per REGISTERED module WITH SETTINGS, so an
@@ -608,6 +616,14 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
           </div>
         )}
 
+        {/* Anki — AnkiConnect connection (field mapping stays under General
+            for now; this page owns the connection card). */}
+        {selection.group === 'anki' && (
+          <div className="entei-settings-section-stack">
+            <AnkiConnectionCard dict={dict.ankiConnection} notEditable={dict.yomitanSettings.notEditable} />
+          </div>
+        )}
+
         {/* Modules landing: core-module switches in 2-column grid. */}
         {selection.group === 'module' && selection.item === null && (
           <div className="entei-settings-section-stack">
@@ -692,6 +708,9 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
   );
 
   function backToMenu() {
+    // Mobile drill-down: only the Modules landing has children (a submenu);
+    // every other group (incl. Anki) sits at the top level, so Back returns
+    // to the General menu.
     if (selection.group === 'module' && selection.item) {
       navigate('module', null);
     } else {

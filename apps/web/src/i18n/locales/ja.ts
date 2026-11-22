@@ -402,9 +402,27 @@ export const ja: Dictionary = {
     general: '一般',
     appearance: '外観',
     module: 'モジュール',
+    anki: 'Anki',
     yomitan: 'Yomitan',
     jimaku: 'Jimaku.cc',
     nadeshiko: 'Nadeshiko',
+  },
+  ankiConnection: {
+    title: 'Anki 接続',
+    serverLabel: 'AnkiConnect サーバー URL',
+    serverPlaceholder: 'http://127.0.0.1:8765',
+    statusConnected: '状態: 接続済み',
+    statusDisconnected: '状態: 未接続',
+    connectionStatusLabel: 'AnkiConnect 接続状態',
+    apiKeyLabel: 'API キー',
+    apiKeyDescription: 'AnkiConnect API 呼び出しに渡す秘密の値',
+    apiKeyPlaceholder: 'キーがなければ空のまま',
+    downloadTimeoutLabel: 'アイドル時ダウンロードタイムアウト (ms)',
+    downloadTimeoutDescription:
+      'アイドル状態のダウンロードがキャンセルされるまでの最大時間。0 は無制限。',
+    forceSyncLabel: 'カード追加時に Anki 同期を強制',
+    forceSyncDescription:
+      '低速または従量制の接続では問題が起きることがあります。',
   },
   language: {
     selectLabel: '言語',

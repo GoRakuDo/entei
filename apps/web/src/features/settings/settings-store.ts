@@ -48,6 +48,7 @@ export const SETTINGS_STORAGE_KEYS: readonly string[] = [
   'entei.modules.imported.v1', // imported *.module.json manifests (module-registry.ts)
   'entei.yomitan.options.v1', // full Yomitan options tree (yomitan-preferences.ts)
   'entei.player.anki-miner.v1', // AnkiConnect deck/note/field mapping
+  'entei.player.anki-connection.v1', // AnkiConnect server/key/timeout/force-sync (Anki settings page)
   'entei.preferences.v1', // UI language (i18n/preferences.ts PREFERENCES_KEY)
   'entei.settings.moduleExpanded', // /settings/ Modules accordion (SettingsApp.tsx)
   'entei.settings.sidebarCollapsed', // /settings/ desktop sidebar rail (SettingsApp.tsx)
