@@ -320,13 +320,18 @@ function indexFields(
  */
 function virtualField(
   path: string,
-  type: 'boolean' | 'select',
+  type: 'boolean' | 'select' | 'number',
+  bounds?: { min?: number; max?: number; step?: number; default?: number },
 ): SettingFieldDescriptor {
   return {
     key: path,
     type,
     label: '',
-    default: type === 'boolean' ? false : '',
+    default:
+      type === 'boolean' ? false : type === 'number' ? (bounds?.default ?? 0) : '',
+    ...(type === 'number' && bounds
+      ? { min: bounds.min, max: bounds.max, step: bounds.step }
+      : {}),
   };
 }
 
@@ -666,6 +671,20 @@ function ModuleLayoutRow({
       return (
         <ModuleFieldRow
           field={virtualField(path, 'boolean')}
+          label={label}
+          description={description}
+          value={readOptionPath(options, path)}
+          onChange={(value) => onChange(path, value)}
+          notEditable={labels.notEditable}
+        />
+      );
+    }
+    /* A host-declared number (Yomitan's audio fetch timeout lives only in the
+       options store, not the tree): a numeric input the app answers itself. */
+    if (row.type === 'number') {
+      return (
+        <ModuleFieldRow
+          field={virtualField(path, 'number', row)}
           label={label}
           description={description}
           value={readOptionPath(options, path)}

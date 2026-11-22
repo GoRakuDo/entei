@@ -241,10 +241,23 @@ export interface EnteiModuleRowBinding {
    * its control here (`select` also needs an `optionsSource`; `boolean` needs
    * nothing else), and the app answers the path in its options store.
    *
+   * A `number` row may also carry its own bounds and reset value (`min` / `max` /
+   * `step` / `default`), which the app folds into the descriptor it synthesizes
+   * (upstream Yomitan stores these on the field, which a virtual field has no
+   * tree entry to inherit from).
+   *
    * Ignored when the tree DOES have the field — the descriptor always wins, so
    * an imported manifest cannot use this to override a real field's control.
    */
-  type?: 'boolean' | 'select';
+  type?: 'boolean' | 'select' | 'number';
+  /** Inclusive lower bound of a host-declared `number` field. */
+  min?: number;
+  /** Inclusive upper bound of a host-declared `number` field. */
+  max?: number;
+  /** Step of a host-declared `number` field's spinner. */
+  step?: number;
+  /** Reset value of a host-declared `number` field (the number input's `0`). */
+  default?: number;
 }
 
 /**
@@ -526,8 +539,19 @@ export function normalizeSectionLayouts(
       const binding: EnteiModuleRowBinding = { layout };
       if (field !== undefined) binding.field = field;
       const type = optionalId(row.type);
-      if (layout === 'field' && (type === 'boolean' || type === 'select')) {
+      if (
+        layout === 'field' &&
+        (type === 'boolean' || type === 'select' || type === 'number')
+      ) {
         binding.type = type;
+      }
+      /* A host-declared `number` field has no tree descriptor to inherit its
+         bounds from, so the manifest row's own numbers travel with the binding. */
+      if (type === 'number') {
+        if (typeof row.min === 'number') binding.min = row.min;
+        if (typeof row.max === 'number') binding.max = row.max;
+        if (typeof row.step === 'number') binding.step = row.step;
+        if (typeof row.default === 'number') binding.default = row.default;
       }
       if (source !== undefined) binding.source = source;
       if (optionsSource !== undefined) binding.optionsSource = optionsSource;
