@@ -34,9 +34,49 @@ import {
 } from '@/modules/yomitan/audio/audio-resolver';
 import type { AudioSourceInfo } from '@/modules/yomitan/audio/audio-sources';
 import { audioSourceLabel } from '@/modules/yomitan/audio/audio-sources';
+import { extractAudioMenuTemplates } from '@/modules/yomitan/popup-preview/popup-entries';
 
 /** The tooltip the speaker buttons carry, upstream's default hotkey spelled out. */
 const PLAY_AUDIO_TITLE = 'Play audio (Alt + P)';
+
+/**
+ * Mount the audio-source menu's `<template>`s into the page, if they are missing.
+ *
+ * `openAudioMenu` clones `#audio-button-popup-menu-template` and
+ * `#audio-button-popup-menu-item-template` out of the DOCUMENT (upstream's
+ * `display-audio.js` does the same) — so they have to be real elements in the
+ * page, not just text handed to the card generator. The popup iframe gets them
+ * because `buildPopupDocument` inlines `extractAudioMenuTemplates(templates)` into
+ * its own `#popup-menus`; this page draws its cards with `createSearchDisplay`, which
+ * consumes the templates but never mounts the menu ones, so a right-click found
+ * `getElementById(...) === null` and returned without opening anything.
+ *
+ * Idempotent: the templates are static upstream markup, mounted once per document
+ * (the page's single island re-binds the controller on every redraw, but the
+ * templates outlive any one controller). Parsing `extractAudioMenuTemplates`'s
+ * markup and appending its `<template>` children is safe — a `<template>`'s
+ * content is inert until cloned, exactly as upstream ships it.
+ */
+export function mountAudioMenuTemplates(templates: string): void {
+  if (typeof document === 'undefined') return;
+  const menuId = 'audio-button-popup-menu-template';
+  const existing = document.getElementById(menuId);
+  if (existing instanceof HTMLTemplateElement) return;
+  const markup = extractAudioMenuTemplates(templates);
+  if (markup === '') return;
+  /* Parse through a `<template>` element, not `DOMParser`: a top-level `<template>`
+     is placed inconsistently by the HTML parser across engines (jsdom leaves
+     `parsed.body` empty and hangs them off the document), whereas a template's own
+     `innerHTML` reliably yields the two `<template>` elements as its children. The
+     templates' content is inert until cloned either way. */
+  const host = document.createElement('template');
+  host.innerHTML = markup;
+  const fragment = document.createDocumentFragment();
+  for (const node of [...host.content.childNodes]) {
+    fragment.append(node);
+  }
+  document.body.append(fragment);
+}
 
 /** Sources the current speaker press resolved successfully, keyed by headword. */
 interface ResolvedPrimary {

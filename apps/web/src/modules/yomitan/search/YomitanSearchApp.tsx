@@ -115,7 +115,10 @@ import {
   toAudioSourceInfos,
   type AudioSourceInfo,
 } from '@/modules/yomitan/audio/audio-sources';
-import { YomitanAudioController } from '@/modules/yomitan/search/audio-controller';
+import {
+  YomitanAudioController,
+  mountAudioMenuTemplates,
+} from '@/modules/yomitan/search/audio-controller';
 
 /**
  * This page's own English strings.
@@ -363,6 +366,12 @@ export function YomitanSearchApp() {
           },
         });
         if (cancelled) return;
+        /* The audio-source menu's `<template>`s have to be real elements in this
+           document before a right-click can clone them (see
+           `mountAudioMenuTemplates`). The popup iframe inlines them into its own
+           `#popup-menus`; this page never did, so the menu silently no-op'd.
+           Mounted once, outliving every controller re-bind. */
+        mountAudioMenuTemplates(assets.templates);
         displayRef.current = display;
         dictionariesRef.current = toPopupDictionaryInfo(installed);
         setHasDictionaries(installed.some((entry) => entry.enabled));

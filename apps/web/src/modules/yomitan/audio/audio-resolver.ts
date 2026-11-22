@@ -25,9 +25,15 @@
  * WHY NOT UPLPOAD'S AudioSystem WHOLESALE. Upstream validates the jpod101 payload
  * by duration and SHA-256 to detect the CDN's "no such word" placeholder; that
  * needs `crypto.subtle` on the bytes, which a plain `new Audio(url)` playback
- * never reads. We instead listen for the element's `error` event — the CDN answers
- * a missing word with a response that fails to decode — which is enough to fall
- * back without pulling the audio into an ArrayBuffer.
+ * never reads. We instead check the element's `error` flag (and race a late
+ * `error` event) — the CDN answers a missing word with a response that fails to
+ * decode — which is enough to fall back without pulling the audio into an
+ * ArrayBuffer.
+ *
+ * LATENCY CONTRACT. `playUrl` never waits for `loadeddata`: it calls `play()` at
+ * once so the browser streams while it plays, and it memoises one element per url
+ * (`audioCache`) so a replayed word is instant. `preloadAudioUrl(url)` warms the
+ * cache on a hover / draw-ahead without playing.
  * ---------------------------------------------------------------------------
  */
 
@@ -36,6 +42,29 @@ import type { AudioSourceInfo } from '@/modules/yomitan/audio/audio-sources';
 
 /** Language fed to custom-URL `{language}` substitution. Host-locked to Japanese. */
 const LANGUAGE_ISO = 'ja';
+
+/**
+ * One `HTMLAudioElement` per resolved url, for the life of the page.
+ *
+ * The point is latency, not memory: a cached element has ALREADY downloaded and
+ * buffered its media, so the second play of a word is 0 ms instead of a fresh
+ * network round trip. Bounded by how many distinct words the user actually plays
+ * or hovers in a session (each element is a small media handle, and the browser
+ * reuses its own network cache underneath), so no eviction is built in.
+ */
+const audioCache = new Map<string, HTMLAudioElement>();
+
+/**
+ * Build the element for `url`, start it loading, and remember it.
+ *
+ * The `Audio(url)` constructor sets `src` and kicks off the fetch on its own; we
+ * only mark it cached here. No `play()` — that is the caller's call.
+ */
+function setCachedAudio(url: string): HTMLAudioElement {
+  const audio = new Audio(url);
+  audioCache.set(url, audio);
+  return audio;
+}
 
 /**
  * The jpod101 CDN endpoint, verbatim from upstream's `_getInfoJpod101`.
@@ -115,58 +144,110 @@ export function buildCustomUrl(
 }
 
 /**
- * Create and load an `HTMLAudioElement` for `url`, resolving when it is playable.
+ * A decode failure, surfaced as the element's `error` event.
  *
- * Resolves `null` on a decode error (the jpod101 "no such word" placeholder, a
- * network failure, an unsupported format) rather than throwing, so the caller can
- * fall back cleanly. Never rejects.
+ * `HTMLMediaElement` never throws on bad media — it fires `error` and sets its
+ * `error` property. We resolve on that event so `playUrl` can re-read the flag
+ * after `play()` settles: the flag is set synchronously with the event, and this
+ * resolution is queued behind it, so by the time the caller checks, the flag is
+ * already current.
  */
-export function createPlayableAudio(url: string): Promise<HTMLAudioElement | null> {
+function onceDecodeError(audio: HTMLAudioElement): Promise<void> {
   return new Promise((resolve) => {
-    const audio = new Audio(url);
-    const done = (value: HTMLAudioElement | null) => {
-      audio.removeEventListener('loadeddata', onLoad);
-      audio.removeEventListener('error', onError);
-      resolve(value);
-    };
-    const onLoad = (): void => done(audio);
-    const onError = (): void => done(null);
-    audio.addEventListener('loadeddata', onLoad);
-    audio.addEventListener('error', onError);
-    // A missing `preload` would leave `loadeddata` never firing on some engines;
-    // 'auto' asks the element to load enough to play.
-    audio.preload = 'auto';
-    audio.load();
+    audio.addEventListener('error', () => resolve(), { once: true });
   });
+}
+
+/**
+ * The element we built for `url`, still playable, or `undefined`.
+ *
+ * A cached element is replayable: once its media has loaded it stays buffered in
+ * the element (the browser keeps it for the document's lifetime), so a second
+ * play of the SAME url seeks to 0 and plays with no network at all. `error`/`abort`
+ * drop it so a failed download is retried on the next press rather than cached.
+ */
+function getReusable(url: string): HTMLAudioElement | undefined {
+  const audio = audioCache.get(url);
+  if (audio === undefined) return undefined;
+  // A decode that already failed will only fail again; drop it and rebuild.
+  if (audio.error !== null) {
+    audioCache.delete(url);
+    return undefined;
+  }
+  return audio;
+}
+
+/**
+ * Build (or reuse) the element for `url` WITHOUT playing it.
+ *
+ * The constructor starts the network fetch, so a hovered / drawn-ahead word is
+ * already downloading by the time it is clicked. Safe to call repeatedly: the
+ * second call for an in-flight or loaded url reuses the element.
+ */
+export function preloadAudioUrl(url: string): HTMLAudioElement {
+  return getReusable(url) ?? setCachedAudio(url);
+}
+
+/**
+ * Drop every cached element. For tests and for the (not currently wired) case of
+ * a source list change invalidating every resolved url at once.
+ */
+export function clearAudioCache(): void {
+  for (const audio of audioCache.values()) {
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+  }
+  audioCache.clear();
 }
 
 /**
  * Play `url`, stopping `current` first, at `volume` (0–1).
  *
- * Returns the element now playing (so the caller keeps it to stop next time), or
- * `null` if the URL would not load. A rejected `play()` (autoplay policy, a
- * interrupted request) is swallowed: the element still counts as "the current
- * one", matching upstream, which does not unwind on a failed `play()`.
+ * STARTS PLAYING IMMEDIATELY. It does NOT wait for the element's `loadeddata`:
+ * `play()` resolves once playback has actually begun, which for a streaming
+ * `<audio>` is as soon as the first frames are buffered — not after the whole
+ * file has downloaded and decoded. Awaiting `loadeddata` here was the whole
+ * latency: on a cold jpod101 link it held the press for the full download before
+ * a single sample came out.
+ *
+ * The element is memoised per url (`audioCache`), so replaying a word the session
+ * has already played is instant. Returns the element now playing (so the caller
+ * keeps it to stop next time), or `null` on a decode error (the jpod101 "no such
+ * word" placeholder, a network failure, an unsupported format) rather than
+ * throwing, so the caller can fall back cleanly. Never rejects.
  */
 export async function playUrl(
   url: string,
   volume: number,
   current: HTMLAudioElement | null,
 ): Promise<HTMLAudioElement | null> {
-  const audio = await createPlayableAudio(url);
-  if (audio === null) return null;
-  if (current !== null) {
+  const audio = getReusable(url) ?? setCachedAudio(url);
+  // Stop what was playing BEFORE awaiting anything, so a double-press cannot
+  // leave two elements sounding at once.
+  if (current !== null && current !== audio) {
     current.pause();
   }
-  audio.currentTime = 0;
   audio.volume = clampVolume(volume);
+  audio.currentTime = 0;
   const played = audio.play();
   if (typeof played !== 'undefined') {
     try {
       await played;
     } catch {
-      // Autoplay policy / interrupted: leave the element as "current" anyway.
+      // Autoplay policy / interrupted request: the element still counts as
+      // "current" (matching upstream, which does not unwind on a failed play).
     }
+  }
+  // A decode error can land during or just after `play()` (the CDN's missing-word
+  // placeholder fails to decode). Give a late `error` one microtask to set the
+  // element's flag, then read the flag once: it is the single source of truth for
+  // "this url would not play". On failure, drop the poisoned element from the
+  // cache and return `null` so the caller falls back to the click sound.
+  await Promise.race([onceDecodeError(audio), Promise.resolve()]);
+  if (audio.error !== null) {
+    audioCache.delete(url);
+    return null;
   }
   return audio;
 }
