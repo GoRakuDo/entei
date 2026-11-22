@@ -19,8 +19,6 @@ export interface AnkiConnectionPreferences {
   server: string;
   /** AnkiConnect API key ('' when the host needs no key). */
   apiKey: string;
-  /** Idle-download timeout in ms; 0 = no limit. */
-  downloadTimeout: number;
   /** Force a full Anki sync when a card is added. */
   forceSync: boolean;
 }
@@ -33,7 +31,6 @@ export const DEFAULT_ANKI_SERVER = 'http://127.0.0.1:8765';
 export const DEFAULT_ANKI_CONNECTION_PREFERENCES: AnkiConnectionPreferences = {
   server: DEFAULT_ANKI_SERVER,
   apiKey: '',
-  downloadTimeout: 0,
   forceSync: false,
 };
 
@@ -44,9 +41,6 @@ function isAnkiConnectionPreferences(value: unknown): value is AnkiConnectionPre
   return (
     typeof v.server === 'string' &&
     typeof v.apiKey === 'string' &&
-    typeof v.downloadTimeout === 'number' &&
-    Number.isFinite(v.downloadTimeout) &&
-    v.downloadTimeout >= 0 &&
     typeof v.forceSync === 'boolean'
   );
 }
@@ -100,10 +94,6 @@ export function updateAnkiConnectionPreferences(
   change: Partial<AnkiConnectionPreferences>,
 ): AnkiConnectionPreferences {
   const next = { ...readAnkiConnectionPreferences(), ...change };
-  // Never persist a negative timeout; treat it as "no limit" (0).
-  if (next.downloadTimeout < 0 || !Number.isFinite(next.downloadTimeout)) {
-    next.downloadTimeout = 0;
-  }
   writeAnkiConnectionPreferences(next);
   return next;
 }

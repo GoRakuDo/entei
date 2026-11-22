@@ -120,9 +120,13 @@ async fn modules_nadeshiko_user_me(api_key: String) -> Result<NadeshikoUserMe, N
 /// not. This is the native pipe that reads such a payload anyway, so the Yomitan
 /// `Custom URL (JSON)` audio source (a JSON list of per-word tracks) can be
 /// resolved. The body is returned raw; the renderer parses and validates it.
+///
+/// `timeout_ms` is the caller's configured per-request timeout in milliseconds;
+/// `None` (or zero) uses the built-in default, so a hung server fails the lookup
+/// instead of pinning the audio menu.
 #[tauri::command]
-async fn modules_fetch_text(url: String) -> Result<String, String> {
-    fetch::fetch_text(&url).await
+async fn modules_fetch_text(url: String, timeout_ms: Option<u64>) -> Result<String, String> {
+    fetch::fetch_text(&url, timeout_ms).await
 }
 #[tauri::command]
 async fn modules_clipboard_read_text() -> Option<String> {

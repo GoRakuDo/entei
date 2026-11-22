@@ -418,9 +418,6 @@ export const ja: Dictionary = {
     apiKeyLabel: 'API キー',
     apiKeyDescription: 'AnkiConnect API 呼び出しに渡す秘密の値',
     apiKeyPlaceholder: 'キーがなければ空のまま',
-    downloadTimeoutLabel: 'アイドル時ダウンロードタイムアウト (ms)',
-    downloadTimeoutDescription:
-      'アイドル状態のダウンロードがキャンセルされるまでの最大時間。0 は無制限。',
     forceSyncLabel: 'カード追加時に Anki 同期を強制',
     forceSyncDescription:
       '低速または従量制の接続では問題が起きることがあります。',

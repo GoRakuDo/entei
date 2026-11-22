@@ -596,6 +596,16 @@
             { "value": "click", "label": "Click" },
             { "value": "bloop", "label": "Bloop" }
           ]
+        },
+        {
+          "layout": "field",
+          "field": "audio.downloadTimeout",
+          "type": "number",
+          "label": "Audio fetch timeout (in ms)",
+          "description": "The maximum time before an audio download is cancelled; 0 = no limit.",
+          "min": 0,
+          "step": 1,
+          "default": 0
         }
       ]
     },

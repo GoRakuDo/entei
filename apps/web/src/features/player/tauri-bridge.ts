@@ -307,15 +307,31 @@ export async function readClipboardTextDirect(): Promise<string | null> {
  * The body is returned raw. Parsing and validating the payload is the caller's
  * job, so this stays a dumb pipe and the reason string never carries user data.
  */
-export async function fetchTextDirect(url: string): Promise<string> {
+export async function fetchTextDirect(url: string, timeoutMs?: number): Promise<string> {
   if (isTauri()) {
-    return invokePluginCommand<string>('plugin:modules|modules_fetch_text', { url });
+    // The native pipe honours the caller's per-request timeout (ms) when it is a
+    // positive number; the plugin falls back to its own default otherwise.
+    const timeout_ms =
+      timeoutMs !== undefined && timeoutMs > 0 ? timeoutMs : null;
+    return invokePluginCommand<string>('plugin:modules|modules_fetch_text', {
+      url,
+      timeout_ms,
+    });
   }
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`http status ${response.status}`);
+  const controller = new AbortController();
+  const timeoutId =
+    timeoutMs !== undefined && timeoutMs > 0
+      ? setTimeout(() => controller.abort(), timeoutMs)
+      : null;
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`http status ${response.status}`);
+    }
+    return await response.text();
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
   }
-  return response.text();
 }
 
 /* ---------------------------------------------------------------------------

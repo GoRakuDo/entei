@@ -482,9 +482,6 @@ export interface Dictionary {
     apiKeyLabel: string;
     apiKeyDescription: string;
     apiKeyPlaceholder: string;
-    /** Row 3 — idle download timeout (ms). */
-    downloadTimeoutLabel: string;
-    downloadTimeoutDescription: string;
     /** Row 4 — force Anki sync when adding a card. */
     forceSyncLabel: string;
     forceSyncDescription: string;

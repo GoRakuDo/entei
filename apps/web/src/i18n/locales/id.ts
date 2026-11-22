@@ -420,9 +420,6 @@ export const id: Dictionary = {
     apiKeyLabel: 'Kunci API',
     apiKeyDescription: 'Kirimkan nilai rahasia ke panggilan API AnkiConnect',
     apiKeyPlaceholder: 'Kosongkan jika tanpa kunci',
-    downloadTimeoutLabel: 'Batas waktu unduh menganggur (dalam md)',
-    downloadTimeoutDescription:
-      'Waktu maksimum sebelum unduhan menganggur dibatalkan; 0 = tanpa batas.',
     forceSyncLabel: 'Paksa sinkronisasi Anki saat menambah kartu',
     forceSyncDescription:
       'Dapat bermasalah saat koneksi lambat atau berkuota.',

@@ -40,6 +40,10 @@
 import { isStringEntirelyKana } from '@/modules/yomitan/vendor/js/language/ja/japanese.js';
 import type { AudioSourceInfo } from '@/modules/yomitan/audio/audio-sources';
 import { fetchTextDirect } from '@/features/player/tauri-bridge';
+import {
+  activeProfileOptions,
+  readYomitanOptions,
+} from '@/modules/yomitan/yomitan-preferences';
 
 /** Language fed to custom-URL `{language}` substitution. Host-locked to Japanese. */
 const LANGUAGE_ISO = 'ja';
@@ -204,7 +208,15 @@ export async function resolveCustomJsonTracks(
   if (cached !== undefined) return cached;
   let tracks: AudioInfo[];
   try {
-    const body = await fetchTextDirect(requestUrl);
+    // `audio` lives on the ACTIVE PROFILE's options, not on the root tree.
+    const profile = activeProfileOptions(readYomitanOptions()) as {
+      audio?: { downloadTimeout?: number };
+    };
+    const timeout = profile.audio?.downloadTimeout;
+    const body = await fetchTextDirect(
+      requestUrl,
+      typeof timeout === 'number' && timeout > 0 ? timeout : undefined,
+    );
     tracks = parseAudioSourceList(body, source.index);
   } catch {
     // Network / CORS-proxy / HTTP failure: NOT cached, so the next menu open

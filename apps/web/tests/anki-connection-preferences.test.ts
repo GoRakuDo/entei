@@ -18,7 +18,6 @@ describe('readAnkiConnectionPreferences', () => {
     const prefs = readAnkiConnectionPreferences();
     expect(prefs.server).toBe(DEFAULT_ANKI_SERVER);
     expect(prefs.apiKey).toBe('');
-    expect(prefs.downloadTimeout).toBe(0);
     expect(prefs.forceSync).toBe(false);
   });
 
@@ -28,14 +27,12 @@ describe('readAnkiConnectionPreferences', () => {
       JSON.stringify({
         server: 'http://localhost:9999',
         apiKey: 'secret',
-        downloadTimeout: 3000,
         forceSync: true,
       }),
     );
     const prefs = readAnkiConnectionPreferences();
     expect(prefs.server).toBe('http://localhost:9999');
     expect(prefs.apiKey).toBe('secret');
-    expect(prefs.downloadTimeout).toBe(3000);
     expect(prefs.forceSync).toBe(true);
   });
 
@@ -52,7 +49,6 @@ describe('readAnkiConnectionPreferences', () => {
       JSON.stringify({
         server: 'http://localhost:9999',
         apiKey: 123,
-        downloadTimeout: 0,
         forceSync: false,
       }),
     );
@@ -61,20 +57,6 @@ describe('readAnkiConnectionPreferences', () => {
     );
   });
 
-  it('returns defaults when downloadTimeout is negative', () => {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        server: 'http://localhost:9999',
-        apiKey: '',
-        downloadTimeout: -5,
-        forceSync: false,
-      }),
-    );
-    expect(readAnkiConnectionPreferences()).toEqual(
-      DEFAULT_ANKI_CONNECTION_PREFERENCES,
-    );
-  });
 
   it('returns defaults when localStorage.getItem throws', () => {
     const original = Storage.prototype.getItem;
@@ -96,7 +78,6 @@ describe('writeAnkiConnectionPreferences', () => {
     writeAnkiConnectionPreferences({
       server: 'http://127.0.0.1:8765',
       apiKey: 'k',
-      downloadTimeout: 1000,
       forceSync: true,
     });
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -104,7 +85,6 @@ describe('writeAnkiConnectionPreferences', () => {
     const data = JSON.parse(raw!);
     expect(data.server).toBe('http://127.0.0.1:8765');
     expect(data.apiKey).toBe('k');
-    expect(data.downloadTimeout).toBe(1000);
     expect(data.forceSync).toBe(true);
   });
 
@@ -114,7 +94,7 @@ describe('writeAnkiConnectionPreferences', () => {
       apiKey: 'k',
     });
     const keys = Object.keys(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).sort();
-    expect(keys).toEqual(['apiKey', 'downloadTimeout', 'forceSync', 'server']);
+    expect(keys).toEqual(['apiKey', 'forceSync', 'server']);
   });
 
   it('does not throw when localStorage.setItem throws', () => {
@@ -141,21 +121,8 @@ describe('updateAnkiConnectionPreferences', () => {
     expect(prefs.apiKey).toBe('a');
     expect(prefs.forceSync).toBe(true);
     // untouched field keeps its default
-    expect(prefs.downloadTimeout).toBe(0);
   });
 
-  it('clamps a negative timeout to 0 (no limit)', () => {
-    const next = updateAnkiConnectionPreferences({ downloadTimeout: -100 });
-    expect(next.downloadTimeout).toBe(0);
-    expect(readAnkiConnectionPreferences().downloadTimeout).toBe(0);
-  });
-
-  it('clamps a non-finite timeout to 0', () => {
-    const next = updateAnkiConnectionPreferences({
-      downloadTimeout: Number.NaN,
-    });
-    expect(next.downloadTimeout).toBe(0);
-  });
 });
 
 describe('settings-store registration', () => {

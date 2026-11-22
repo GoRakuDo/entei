@@ -629,6 +629,15 @@ function migrateLegacyPayload(
       options: seedDefaultAudioSource(profile.options),
     })),
   };
+  // Same choke point for the host's `audio.downloadTimeout` default, so a
+  // pre-existing payload also gets an addressable field to persist into.
+  migrated = {
+    ...migrated,
+    profiles: migrated.profiles.map((profile) => ({
+      ...profile,
+      options: seedAudioDownloadTimeout(profile.options),
+    })),
+  };
   return migrated;
 }
 
@@ -661,6 +670,32 @@ function seedDefaultAudioSource(options: ProfileOptions): ProfileOptions {
 }
 
 /**
+ * Seed the host's `audio.downloadTimeout` default (0 ms) into one profile.
+ *
+ * Upstream's `AudioOptions` carries no `downloadTimeout` — the timeout lives only
+ * on Anki's options — so the Yomitan settings tree alone would never address one.
+ * This host resolves audio through a native fetch that DOES honour a per-request
+ * timeout (modules/yomitan/audio/audio-resolver.ts → `fetchTextDirect`), so we
+ * own the field here: a host-level default of `0` ("no timeout / browser path")
+ * is seeded so `writeOptionPath('audio.downloadTimeout', …)` finds an existing
+ * key and persists it instead of silently dropping the write.
+ *
+ * Idempotent and non-destructive: a profile that already carries a numeric value
+ * keeps it, and a missing / non-numeric one is normalised to `0`. Run for EVERY
+ * profile on the way in (same choke point as `seedDefaultAudioSource`), so both
+ * fresh and pre-existing payloads end up with an addressable field.
+ */
+function seedAudioDownloadTimeout(options: ProfileOptions): ProfileOptions {
+  const audio = options.audio as unknown;
+  if (!isPlainObject(audio)) return options;
+  if (typeof audio.downloadTimeout === 'number') return options;
+  // `downloadTimeout` is a HOST-only field (upstream `AudioOptions` has none), so
+  // the audio section is handled as a record here rather than as an `AudioOptions`.
+  const nextAudio = { ...audio, downloadTimeout: 0 } as unknown as ProfileOptions['audio'];
+  return { ...options, audio: nextAudio };
+}
+
+/**
  * Yomitan's default profile options with this host's own scan-input cards.
  *
  * The fallback for every field the host does not supply.
@@ -674,6 +709,7 @@ function createHostProfileOptions(): ProfileOptions {
   opts = setPathValue(opts, 'scanning.autoHideResults', true);
   opts = setPathValue(opts, 'scanning.hideDelay', 2000);
   opts = seedDefaultAudioSource(opts as ProfileOptions);
+  opts = seedAudioDownloadTimeout(opts as ProfileOptions);
   // Search window: Entei ships both of upstream's "off" switches ON, because a
   // host page has no window of its own to keep the box in and no other way to
   // start a lookup than typing it.

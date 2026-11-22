@@ -423,9 +423,6 @@ export const en: Dictionary = {
     apiKeyLabel: 'API Key',
     apiKeyDescription: 'Pass a secret value to AnkiConnect API calls',
     apiKeyPlaceholder: 'Leave empty if no key',
-    downloadTimeoutLabel: 'Idle download timeout (in ms)',
-    downloadTimeoutDescription:
-      'The maximum time before an idle download will be cancelled; 0 = no limit.',
     forceSyncLabel: 'Force Anki sync on adding card',
     forceSyncDescription: 'May cause issues when slow or metered connections.',
   },

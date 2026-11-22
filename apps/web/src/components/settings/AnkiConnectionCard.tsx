@@ -59,9 +59,6 @@ interface AnkiConnectionCardProps {
 export function AnkiConnectionCard({ dict, notEditable }: AnkiConnectionCardProps) {
   const [server, setServer] = useState(DEFAULT_ANKI_SERVER);
   const [apiKey, setApiKey] = useState('');
-  const [downloadTimeout, setDownloadTimeout] = useState(
-    DEFAULT_ANKI_CONNECTION_PREFERENCES.downloadTimeout,
-  );
   const [forceSync, setForceSync] = useState(
     DEFAULT_ANKI_CONNECTION_PREFERENCES.forceSync,
   );
@@ -77,7 +74,6 @@ export function AnkiConnectionCard({ dict, notEditable }: AnkiConnectionCardProp
     const saved = readAnkiConnectionPreferences();
     setServer(saved.server || DEFAULT_ANKI_SERVER);
     setApiKey(saved.apiKey);
-    setDownloadTimeout(saved.downloadTimeout);
     setForceSync(saved.forceSync);
   }, []);
 
@@ -136,10 +132,6 @@ export function AnkiConnectionCard({ dict, notEditable }: AnkiConnectionCardProp
   const handleApiKeyChange = (value: string) => {
     setApiKey(value);
     updateAnkiConnectionPreferences({ apiKey: value });
-  };
-  const handleTimeoutChange = (value: number) => {
-    setDownloadTimeout(value);
-    updateAnkiConnectionPreferences({ downloadTimeout: value });
   };
   const handleForceSyncChange = (value: boolean) => {
     setForceSync(value);
@@ -205,27 +197,6 @@ export function AnkiConnectionCard({ dict, notEditable }: AnkiConnectionCardProp
         description={dict.apiKeyDescription}
         value={apiKey}
         onChange={(value) => handleApiKeyChange(String(value))}
-        notEditable={notEditable}
-      />
-
-      {/* Row 3 — idle download timeout (ms) */}
-      <ModuleFieldRow
-        field={{
-          type: 'number',
-          key: 'downloadTimeout',
-          label: dict.downloadTimeoutLabel,
-          min: 0,
-          step: 1,
-          default: 0,
-        }}
-        label={dict.downloadTimeoutLabel}
-        description={dict.downloadTimeoutDescription}
-        value={downloadTimeout}
-        onChange={(value) => {
-          const parsed = Number(value);
-          if (!Number.isFinite(parsed) || parsed < 0) return;
-          handleTimeoutChange(parsed);
-        }}
         notEditable={notEditable}
       />
 
