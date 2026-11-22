@@ -423,7 +423,7 @@ export class YomitanAudioController {
       if (flags.has('v-cover')) verticalCover = 1;
       else if (flags.has('no-v-cover')) verticalCover = -1;
     }
-    const containerRect = this.menuContainer.getBoundingClientRect();
+    const containerRect = menuContainer.getBoundingClientRect();
     const sourceRect = source.getBoundingClientRect();
     const menuRect = menu.getBoundingClientRect();
     let top = menuRect.top;
