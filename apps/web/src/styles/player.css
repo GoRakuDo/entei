@@ -2371,7 +2371,7 @@ html.entei-native-video .entei-player-video {
 .entei-subtitle-control-row {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-16);
+  gap: var(--entei-space-24);
 }
 
 @media (min-width: 768px) {

@@ -1231,7 +1231,7 @@ body[data-page='settings'] .entei-main {
   width: auto;
   height: 100%;
   min-height: var(--entei-touch-min);
-  padding-inline: var(--entei-space-16);
+  padding-inline: var(--entei-space-12);
   border-radius: 0;
   display: inline-flex;
   align-items: center;
