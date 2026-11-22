@@ -492,18 +492,6 @@
       "rows": [
         {
           "layout": "field",
-          "field": "parsing.enableScanningParser",
-          "label": "Parse sentences using Yomitan's internal parser",
-          "description": "Sentence words are parsed using Yomitan's dictionaries."
-        },
-        {
-          "layout": "field",
-          "field": "parsing.enableMecabParser",
-          "label": "Parse sentences using MeCab",
-          "description": "Sentence words are parsed using a third-party program. Japanese only."
-        },
-        {
-          "layout": "field",
           "field": "parsing.termSpacing",
           "label": "Show space between parsed words"
         },

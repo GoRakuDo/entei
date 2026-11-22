@@ -1019,10 +1019,11 @@ describe('ModuleSettingsRenderer — the shipped Parsing layout', () => {
    * instead of in Appearance, where the tree groups would otherwise leave it. The
    * romaji → kana switch is NOT here any more: it belongs to the input the user
    * types into, so the manifest moved it to the Search Window card (see below).
+   * The two parser toggles (internal parser + MeCab) are also left OUT of the
+   * UI: they keep their upstream defaults, so only the two presentation rows
+   * (term spacing + reading mode) are declared here.
    */
   const PARSING_LABELS = [
-    "Parse sentences using Yomitan's internal parser",
-    'Parse sentences using MeCab',
     'Show space between parsed words',
     'Reading mode',
   ];
@@ -1038,14 +1039,16 @@ describe('ModuleSettingsRenderer — the shipped Parsing layout', () => {
     );
   }
 
-  /** The Parsing card's position, read from the tree rather than hard-coded. */
+  /** The Parsing card's position, read from the rendered (reordered) schema. */
   function parsingIndex(): number {
-    return yomitanSettingsTree.findIndex(
+    const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
+    if (yomitan === undefined) throw new Error('yomitan is not registered');
+    return (yomitan.settingsSchema ?? []).findIndex(
       (section) => section.key === 'parsing',
     );
   }
 
-  it('draws the four declared rows once each', () => {
+  it('draws the two declared rows once each', () => {
     const { container } = renderShipped();
     // The section is called Parsing; Sentence Parsing is a different card, so the
     // accessible name has to be matched exactly.
@@ -1060,8 +1063,8 @@ describe('ModuleSettingsRenderer — the shipped Parsing layout', () => {
     for (const label of PARSING_LABELS) {
       expect(screen.getAllByText(label)).toHaveLength(1);
     }
-    // 3 parser switches, one reading-mode combobox.
-    expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(3);
+    // The parser toggles are hidden: one switch (term spacing), one combobox.
+    expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(1);
     expect(section?.querySelectorAll('.entei-module-select')).toHaveLength(1);
     // ...and nothing else: no stray textarea or number input in this section.
     expect(section?.querySelectorAll('textarea')).toHaveLength(0);

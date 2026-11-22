@@ -624,8 +624,30 @@ export const MODULE_IMPORTS_KEY = 'entei.modules.imported.v1';
  * data, exactly like an imported `*.module.json` would be. The renderer walks
  * it generically; adding a section upstream needs no Entei change.
  */
+/**
+ * Upstream's own section order ends `... audio, anki, inputs, translation,
+ * parsing, ...`, which buries Parsing near the bottom of the page. Entei moves it
+ * up to sit right after Audio (both are playback/result presentation surfaces),
+ * keeping every other section in upstream's relative order. A copy, never a sort
+ * of the shared tree: the imported array stays untouched for the engine.
+ */
+function orderYomitanSections(
+  tree: readonly SettingSectionDescriptor[],
+): SettingSectionDescriptor[] {
+  const reordered = [...tree];
+  const from = reordered.findIndex((section) => section.key === 'parsing');
+  if (from === -1) return reordered;
+  const after = reordered.findIndex((section) => section.key === 'audio');
+  if (after === -1 || after === from - 1) return reordered;
+  const [parsing] = reordered.splice(from, 1);
+  if (parsing === undefined) return reordered;
+  const insertAt = reordered.findIndex((section) => section.key === 'audio');
+  reordered.splice(insertAt + 1, 0, parsing);
+  return reordered;
+}
+
 const YOMITAN_SETTINGS_SCHEMA: readonly SettingSectionDescriptor[] =
-  yomitanSettingsTree;
+  orderYomitanSections(yomitanSettingsTree);
 
 /** Canonical registration order for built-in modules. */
 const CORE_ORDER: readonly string[] = [
