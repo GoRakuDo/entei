@@ -473,6 +473,7 @@ export interface Dictionary {
     serverLabel: string;
     serverPlaceholder: string;
     /** Dynamic connection-status line under the URL label. */
+    statusLabel: string;
     statusConnected: string;
     statusDisconnected: string;
     /** Accessible label prefix for the live status region. */

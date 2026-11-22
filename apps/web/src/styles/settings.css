@@ -558,7 +558,16 @@ body[data-page='settings'] .entei-main {
   font-family: var(--entei-font-body);
   font-size: 0.8125rem;
   line-height: 1.5;
-  /* Color (text + icon) is set inline from the live status. */
+  /* "Status:" keeps the row's default secondary color — only the value below
+     takes the live green/red, so the caption never reads as connected itself. */
+}
+.entei-anki-connection-status-label {
+  color: var(--entei-text-secondary);
+}
+.entei-anki-connection-status-value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-4);
 }
 
 .entei-anki-connection-status-icon {

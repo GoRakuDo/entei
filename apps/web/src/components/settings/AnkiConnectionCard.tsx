@@ -165,12 +165,17 @@ export function AnkiConnectionCard({ dict, notEditable }: AnkiConnectionCardProp
           <span className="entei-module-field-label">{dict.serverLabel}</span>
           <p
             className="entei-anki-connection-status"
-            style={{ color: statusColor }}
             aria-label={dict.connectionStatusLabel}
             aria-live="polite"
           >
-            <StatusIcon className="entei-anki-connection-status-icon" aria-hidden="true" />
-            <span>{statusText}</span>
+            <span className="entei-anki-connection-status-label">{dict.statusLabel}</span>
+            <span
+              className="entei-anki-connection-status-value"
+              style={{ color: statusColor }}
+            >
+              <span>{statusText}</span>
+              <StatusIcon className="entei-anki-connection-status-icon" aria-hidden="true" />
+            </span>
           </p>
         </div>
         <div className="entei-module-field-control">
