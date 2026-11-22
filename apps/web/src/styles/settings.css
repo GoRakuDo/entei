@@ -265,7 +265,7 @@ body[data-page='settings'] .entei-main {
 .entei-settings-section-card {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-16);
+  gap: var(--entei-space-24);
   padding: var(--entei-space-24);
   background-color: var(--entei-surface);
   border: 1px solid oklch(100% 0 0deg / 0.08);
