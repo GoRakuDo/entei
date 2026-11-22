@@ -61,11 +61,14 @@ import {
   type ResolvedPopupOuterTheme,
   parsePopupFrameRequest,
   sourceIsPopupFrame,
+  resolveAndPostAudioTracks,
 } from '@/modules/yomitan/popup-preview';
 import {
   readOptionPath,
   readYomitanOptions,
+  activeProfileOptions,
 } from '@/modules/yomitan/yomitan-preferences';
+import { toAudioSourceInfos } from '@/modules/yomitan/audio/audio-sources';
 import { lookupKanji } from '@/modules/yomitan/yomitan-engine';
 import { listInstalledDictionariesCached } from '@/modules/yomitan/dictionary-store';
 import {
@@ -401,6 +404,16 @@ export function YomitanPopup() {
           ...(cached?.entries ?? []),
           ...(cached?.kanjiEntries ?? []),
         ]);
+        return;
+      }
+      if (request.type === 'resolve-audio-tracks') {
+        /* The frame cannot fetch a custom-json payload itself (sandboxed), so the
+           host resolves and posts the word's tracks back. */
+        const frame = iframeRef.current;
+        if (frame !== null) {
+          const sources = toAudioSourceInfos(activeProfileOptions(readYomitanOptions()).audio?.sources);
+          resolveAndPostAudioTracks(frame, request.requestId, sources, request.term, request.reading);
+        }
         return;
       }
       void (async () => {

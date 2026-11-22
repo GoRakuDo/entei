@@ -14,7 +14,7 @@
  * surfaces, not here.
  * ---------------------------------------------------------------------------
  */
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, beforeEach } from 'bun:test';
 import {
   audioSourceTypeName,
   toAudioSourceInfos,
@@ -23,7 +23,13 @@ import {
   buildCustomUrl,
   buildJpod101Url,
   clampVolume,
+  clearAudioCache,
+  resolveAudioSourcesForTerm,
+  type AudioInfo,
 } from '@/modules/yomitan/audio/audio-resolver';
+import {
+  parseAudioTracksResponse,
+} from '@/modules/yomitan/popup-preview/popup-frame';
 import { buildPopupDocument } from '@/modules/yomitan/popup-preview/popup-document';
 import { extractAudioMenuTemplates } from '@/modules/yomitan/popup-preview/popup-entries';
 import { readFileSync } from 'node:fs';
@@ -233,5 +239,141 @@ describe('popup-document — audio config + menu templates', () => {
     // The new Anki-primary wiring must be present.
     expect(html).toContain('ankiPrimary');
     expect(html).toContain('data-is-primary-card-audio');
+  });
+});
+
+describe('audio-resolver — resolveAudioSourcesForTerm', () => {
+  // The resolver memoises custom-json payloads per word for the life of the page;
+  // clear that cache between tests so each one starts cold (and a failed fetch is
+  // not masked by an earlier test's cached answer).
+  beforeEach(() => {
+    clearAudioCache();
+  });
+
+  it('resolves jpod101 into a single playable track', async () => {
+    const sources = toAudioSourceInfos([{ type: 'jpod101', url: '', voice: '' }]);
+    const resolved = await resolveAudioSourcesForTerm(sources, '犬', 'いぬ');
+    expect(resolved).toHaveLength(1);
+    const group = resolved[0] ?? [];
+    expect(group).toHaveLength(1);
+    const track: AudioInfo = group[0] as AudioInfo;
+    expect(track.type).toBe('url');
+    expect(track.sourceIndex).toBe(0);
+    expect(track.subIndex).toBe(0);
+    expect(track.url).toContain('languagepod101.com');
+    expect(track.url).toContain('kanji=');
+  });
+
+  it('resolves a custom URL template into a single playable track', async () => {
+    const sources = toAudioSourceInfos([
+      { type: 'custom', url: 'https://x/{language}/{term}/{reading}.mp3', voice: '' },
+    ]);
+    const resolved = await resolveAudioSourcesForTerm(sources, '犬', 'いぬ');
+    const group = resolved[0] ?? [];
+    expect(group).toHaveLength(1);
+    expect((group[0] as AudioInfo).url).toBe('https://x/ja/犬/いぬ.mp3');
+  });
+
+  it('keeps the result index-aligned: a scraping source yields an empty group', async () => {
+    const sources = toAudioSourceInfos([
+      { type: 'jpod101', url: '', voice: '' },
+      { type: 'jisho', url: '', voice: '' },
+    ]);
+    const resolved = await resolveAudioSourcesForTerm(sources, '犬', 'いぬ');
+    expect(resolved).toHaveLength(2);
+    expect((resolved[0] ?? []).length).toBe(1);
+    // jisho needs a server-side fetch the client cannot make: empty, not dropped.
+    expect(resolved[1]).toEqual([]);
+  });
+
+  it('resolves a custom-json source into one track per payload entry', async () => {
+    const payload = JSON.stringify({
+      type: 'audioSourceList',
+      audioSources: [
+        { name: 'SMK8 キ\\レイ [1]', url: 'http://localhost:5050/a.mp3' },
+        { name: 'Forvo (strawberrybrown)', url: 'http://localhost:5050/b.mp3' },
+        { name: 'Jpod101', url: 'http://localhost:5050/c.mp3' },
+      ],
+    });
+    globalThis.fetch = (() =>
+      Promise.resolve(new Response(payload, { status: 200 }))) as unknown as typeof fetch;
+    const sources = toAudioSourceInfos([
+      { type: 'custom-json', url: 'http://localhost:5050/{term}/{reading}.json', voice: '' },
+    ]);
+    const resolved = await resolveAudioSourcesForTerm(sources, 'きれい', 'きれい');
+    const group = resolved[0] ?? [];
+    expect(group).toHaveLength(3);
+    expect((group[0] as AudioInfo).name).toBe('SMK8 キ\\レイ [1]');
+    expect((group[0] as AudioInfo).subIndex).toBe(0);
+    expect((group[1] as AudioInfo).subIndex).toBe(1);
+    expect((group[2] as AudioInfo).url).toBe('http://localhost:5050/c.mp3');
+  });
+
+  it('caches a custom-json payload per word (second call does not refetch)', async () => {
+    let calls = 0;
+    globalThis.fetch = (() => {
+      calls += 1;
+      return Promise.resolve(
+        new Response(JSON.stringify({ audioSources: [{ name: 'x', url: 'http://x/a.mp3' }] }), { status: 200 }),
+      );
+    }) as unknown as typeof fetch;
+    const sources = toAudioSourceInfos([
+      { type: 'custom-json', url: 'http://x/{term}.json', voice: '' },
+    ]);
+    await resolveAudioSourcesForTerm(sources, '犬', 'いぬ');
+    await resolveAudioSourcesForTerm(sources, '犬', 'いぬ');
+    expect(calls).toBe(1);
+  });
+
+  it('returns no tracks (and retries later) when the custom-json fetch fails', async () => {
+    let calls = 0;
+    globalThis.fetch = (() => {
+      calls += 1;
+      return Promise.reject(new Error('network down'));
+    }) as unknown as typeof fetch;
+    const sources = toAudioSourceInfos([
+      { type: 'custom-json', url: 'http://x/{term}.json', voice: '' },
+    ]);
+    const resolved = await resolveAudioSourcesForTerm(sources, '犬', 'いぬ');
+    expect(resolved[0]).toEqual([]);
+    // A FAILED fetch is not cached, so the next open retries.
+    await resolveAudioSourcesForTerm(sources, '犬', 'いぬ');
+    expect(calls).toBe(2);
+  });
+});
+
+describe('popup-frame — parseAudioTracksResponse', () => {
+  it('parses a valid audio-tracks reply into per-source track groups', () => {
+    const parsed = parseAudioTracksResponse({
+      channel: 'entei-yomitan-popup',
+      type: 'audio-tracks',
+      requestId: 7,
+      tracks: [
+        [{ sourceIndex: 0, subIndex: 0, url: 'http://x/a.mp3', name: 'SMK8' }],
+        [{ sourceIndex: 1, subIndex: 0, url: 'http://x/b.mp3' }],
+      ],
+    });
+    expect(parsed).not.toBeNull();
+    expect(parsed?.requestId).toBe(7);
+    expect(parsed?.tracks).toHaveLength(2);
+    expect(parsed?.tracks[0]?.[0]?.name).toBe('SMK8');
+    expect(parsed?.tracks[1]?.[0]?.name).toBeUndefined();
+  });
+
+  it('rejects a message from a foreign channel or type', () => {
+    expect(parseAudioTracksResponse({ channel: 'other', type: 'audio-tracks', requestId: 1, tracks: [] })).toBeNull();
+    expect(parseAudioTracksResponse({ channel: 'entei-yomitan-popup', type: 'close', requestId: 1, tracks: [] })).toBeNull();
+    expect(parseAudioTracksResponse(null)).toBeNull();
+  });
+
+  it('drops track rows that carry no url (malformed payload degrades, not breaks)', () => {
+    const parsed = parseAudioTracksResponse({
+      channel: 'entei-yomitan-popup',
+      type: 'audio-tracks',
+      requestId: 1,
+      tracks: [[{ sourceIndex: 0, subIndex: 0, url: '' }, { sourceIndex: 0, subIndex: 1, url: 'http://x/ok.mp3' }]],
+    });
+    expect(parsed?.tracks[0]).toHaveLength(1);
+    expect(parsed?.tracks[0]?.[0]?.url).toBe('http://x/ok.mp3');
   });
 });

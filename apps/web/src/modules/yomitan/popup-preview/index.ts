@@ -64,7 +64,10 @@ export {
   logPopupEntryDebugInfo,
   parsePopupFrameRequest,
   sourceIsPopupFrame,
+  resolveAndPostAudioTracks,
   type PopupFrameRequest,
+  type AudioTracksResponse,
+  type PopupAudioTrack,
 } from '@/modules/yomitan/popup-preview/popup-frame';
 export {
   POPUP_MENU_TEMPLATE_IDS,

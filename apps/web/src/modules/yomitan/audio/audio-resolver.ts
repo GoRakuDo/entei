@@ -39,9 +39,36 @@
 
 import { isStringEntirelyKana } from '@/modules/yomitan/vendor/js/language/ja/japanese.js';
 import type { AudioSourceInfo } from '@/modules/yomitan/audio/audio-sources';
+import { fetchTextDirect } from '@/features/player/tauri-bridge';
 
 /** Language fed to custom-URL `{language}` substitution. Host-locked to Japanese. */
 const LANGUAGE_ISO = 'ja';
+
+/**
+ * One PLAYABLE audio track, resolved for a specific word.
+ *
+ * A source expands into one or more of these: `jpod101` and `custom` each yield
+ * exactly one (a direct media URL), while `custom-json` yields however many
+ * tracks the word's JSON payload lists. `sourceIndex` is the configured source's
+ * position (the menu group's `data-index`) and `subIndex` is the track's
+ * position within that source's expansion (the sub-item's `data-sub-index`), so
+ * the menu can address a track unambiguously and the Anki card-audio pin can
+ * remember `{ sourceIndex, subIndex }` rather than a bare source number.
+ *
+ * `name` is the track's own label from the payload (`SMK8 キ\\レイ [1]`,
+ * `Forvo (…)`), which the menu appends to the source's name.
+ */
+export interface AudioInfo {
+  type: 'url';
+  /** The direct media URL `new Audio(url)` plays. Playback is not a CORS request. */
+  url: string;
+  /** The track's own label from the payload, if it carries one. */
+  name?: string;
+  /** Position of the configured source this track came from. */
+  sourceIndex: number;
+  /** Position of this track within that source's expansion (0-based). */
+  subIndex: number;
+}
 
 /**
  * One `HTMLAudioElement` per resolved url, for the life of the page.
@@ -53,6 +80,18 @@ const LANGUAGE_ISO = 'ja';
  * reuses its own network cache underneath), so no eviction is built in.
  */
 const audioCache = new Map<string, HTMLAudioElement>();
+
+/**
+ * Resolved `custom-json` track lists, keyed by `requestUrl\u0000term\u0000reading`.
+ *
+ * The payload is a per-word lookup over the network, so a word whose menu is
+ * opened twice (or whose audio is replayed) must not refetch. An EMPTY array is
+ * cached too: it is a real answer ("this word has no tracks here") and caching
+ * it is what keeps a missing word from re-hitting the server on every menu open.
+ * A FAILED fetch is NOT cached — a transient network error should retry on the
+ * next open rather than be pinned for the session.
+ */
+const customJsonCache = new Map<string, AudioInfo[]>();
 
 /**
  * Build the element for `url`, start it loading, and remember it.
@@ -119,6 +158,137 @@ export function buildJpod101Url(term: string, reading: string): string {
 }
 
 /**
+ * The substitution placeholders a `custom` / `custom-json` template may carry.
+ * Upstream replaces every `{...}` with the matching field and leaves unknown
+ * ones untouched; an empty template resolves to nothing to request.
+ */
+function substituteTemplate(
+  template: string,
+  term: string,
+  reading: string,
+): string | null {
+  if (template.length === 0) return null;
+  const data: Record<string, string> = { term, reading, language: LANGUAGE_ISO };
+  return template.replace(/\{([^}]*)\}/g, (match, key: string) => {
+    const value = Object.prototype.hasOwnProperty.call(data, key)
+      ? data[key]
+      : undefined;
+    return typeof value === 'string' ? value : match;
+  });
+}
+
+/**
+ * Fetch + parse a `custom-json` source's track list for one word.
+ *
+ * The configured URL is a template (`{term}` / `{reading}` / `{language}`
+ * substituted); the response is upstream's `audioSourceList` payload:
+ * `{ type: 'audioSourceList', audioSources: [{ name, url }, …] }`. Each entry
+ * becomes an [`AudioInfo`] carrying the track's own `name` and its position
+ * (`subIndex`) within this source.
+ *
+ * The FETCH goes through [`fetchTextDirect`] — a local audio server sends no
+ * CORS headers, so the browser cannot read the payload itself and the native
+ * plugin does the GET. A malformed payload, a non-2xx response, or a network
+ * failure all resolve to `[]` ("no tracks"), never throw, so a broken source
+ * degrades to the same "no audio" signal as an unresolvable scraping source.
+ */
+export async function resolveCustomJsonTracks(
+  source: AudioSourceInfo,
+  term: string,
+  reading: string,
+): Promise<AudioInfo[]> {
+  const requestUrl = substituteTemplate(source.url, term, reading);
+  if (requestUrl === null) return [];
+  const cacheKey = `${requestUrl}\u0000${term}\u0000${reading}`;
+  const cached = customJsonCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  let tracks: AudioInfo[];
+  try {
+    const body = await fetchTextDirect(requestUrl);
+    tracks = parseAudioSourceList(body, source.index);
+  } catch {
+    // Network / CORS-proxy / HTTP failure: NOT cached, so the next menu open
+    // retries. Return "no tracks" for this pass.
+    return [];
+  }
+  customJsonCache.set(cacheKey, tracks);
+  return tracks;
+}
+
+/**
+ * Parse an `audioSourceList` JSON body into [`AudioInfo`] tracks.
+ *
+ * Tolerant by design: the payload comes off an arbitrary user-configured server,
+ * so anything that is not the expected shape (bad JSON, a missing/empty
+ * `audioSources` array, an entry with no `url`) contributes nothing rather than
+ * throwing. Each surviving entry keeps its payload order as `subIndex`.
+ */
+function parseAudioSourceList(body: string, sourceIndex: number): AudioInfo[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return [];
+  }
+  if (typeof parsed !== 'object' || parsed === null) return [];
+  const list = (parsed as { audioSources?: unknown }).audioSources;
+  if (!Array.isArray(list)) return [];
+  const tracks: AudioInfo[] = [];
+  for (const entry of list) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const url = (entry as { url?: unknown }).url;
+    if (typeof url !== 'string' || url.length === 0) continue;
+    const name = (entry as { name?: unknown }).name;
+    tracks.push({
+      type: 'url',
+      url,
+      ...(typeof name === 'string' && name.length > 0 ? { name } : {}),
+      sourceIndex,
+      subIndex: tracks.length,
+    });
+  }
+  return tracks;
+}
+
+/**
+ * Resolve EVERY configured source for a word into its playable tracks.
+ *
+ * Returns one [`AudioInfo`] array PER input source, in the same order, so the
+ * menu can render each source's group from its own slot: `jpod101` / `custom`
+ * yield a single track, `custom-json` yields however many the payload lists
+ * (fetched natively, cached per word), and the scraping sources yield none
+ * (listed but not resolvable client-side). A source that resolves to no tracks
+ * gets an empty array rather than being dropped, keeping the result index-aligned
+ * with `sources`.
+ */
+export async function resolveAudioSourcesForTerm(
+  sources: readonly AudioSourceInfo[],
+  term: string,
+  reading: string,
+): Promise<AudioInfo[][]> {
+  return Promise.all(
+    sources.map(async (source): Promise<AudioInfo[]> => {
+      switch (source.type) {
+        case 'jpod101': {
+          const url = buildJpod101Url(term, reading);
+          return [{ type: 'url', url, name: source.name, sourceIndex: source.index, subIndex: 0 }];
+        }
+        case 'custom': {
+          const url = substituteTemplate(source.url, term, reading);
+          if (url === null) return [];
+          return [{ type: 'url', url, name: source.name, sourceIndex: source.index, subIndex: 0 }];
+        }
+        case 'custom-json':
+          return resolveCustomJsonTracks(source, term, reading);
+        default:
+          // Scraping sources: need a server-side fetch the browser cannot make.
+          return [];
+      }
+    }),
+  );
+}
+
+/**
  * The user's custom URL with `{term}` / `{reading}` / `{language}` substituted.
  *
  * Upstream replaces every `{...}` with the matching field and leaves unknown
@@ -129,18 +299,7 @@ export function buildCustomUrl(
   term: string,
   reading: string,
 ): string | null {
-  if (template.length === 0) return null;
-  const data: Record<string, string> = {
-    term,
-    reading,
-    language: LANGUAGE_ISO,
-  };
-  return template.replace(/\{([^}]*)\}/g, (match, key: string) => {
-    const value = Object.prototype.hasOwnProperty.call(data, key)
-      ? data[key]
-      : undefined;
-    return typeof value === 'string' ? value : match;
-  });
+  return substituteTemplate(template, term, reading);
 }
 
 /**
@@ -189,8 +348,9 @@ export function preloadAudioUrl(url: string): HTMLAudioElement {
 }
 
 /**
- * Drop every cached element. For tests and for the (not currently wired) case of
- * a source list change invalidating every resolved url at once.
+ * Drop every cached element and every resolved `custom-json` track list. For
+ * tests and for the (not currently wired) case of a source list change
+ * invalidating every resolved url at once.
  */
 export function clearAudioCache(): void {
   for (const audio of audioCache.values()) {
@@ -199,6 +359,7 @@ export function clearAudioCache(): void {
     audio.load();
   }
   audioCache.clear();
+  customJsonCache.clear();
 }
 
 /**

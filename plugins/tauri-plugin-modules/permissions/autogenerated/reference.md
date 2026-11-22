@@ -12,6 +12,7 @@ Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshik
 - `allow-modules-nadeshiko-segment-context`
 - `allow-modules-nadeshiko-user-me`
 - `allow-modules-clipboard-read-text`
+- `allow-modules-fetch-text`
 - `allow-yomitan-import-dictionary`
 - `allow-yomitan-list-dictionaries`
 - `allow-yomitan-toggle-dictionary`
@@ -192,6 +193,32 @@ Enables the modules_clipboard_read_text command without any pre-configured scope
 <td>
 
 Denies the modules_clipboard_read_text command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:allow-modules-fetch-text`
+
+</td>
+<td>
+
+Enables the modules_fetch_text command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-modules-fetch-text`
+
+</td>
+<td>
+
+Denies the modules_fetch_text command without any pre-configured scope.
 
 </td>
 </tr>

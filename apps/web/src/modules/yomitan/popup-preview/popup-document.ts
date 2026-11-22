@@ -413,13 +413,32 @@ const FRAME_BRIDGE_SCRIPT = `
     var PLAY_AUDIO_TITLE = 'Play audio (Alt + P)';
     var currentAudio = null;
     var activeAudioMenu = null;
-    /* The source that last played per headword key, so a plain click replays it
-       (the same "resolved primary" memory the /search/ controller keeps). */
+    /* The track that last played per headword key, so a plain click replays it
+       (the same "resolved primary" memory the /search/ controller keeps). Now a
+       { sourceIndex, subIndex } ref so it can point at ONE track of a custom-json
+       source that expanded into several. */
     var resolvedPrimary = {};
-    /* The user's explicit "Use as audio for Anki card" choice per headword key.
-       Separate from resolvedPrimary so the playback auto-primary and the Anki
-       card-audio pin stay independent. */
+    /* The user's explicit "Use as audio for Anki card" choice per headword key,
+       also a { sourceIndex, subIndex } ref. Separate from resolvedPrimary so the
+       playback auto-primary and the Anki card-audio pin stay independent. */
     var ankiPrimary = {};
+    /* Resolved track lists per headword key, ONE ARRAY PER CONFIGURED SOURCE in
+       source order — the same shape the host's resolveAudioSourcesForTerm returns.
+       The HOST resolves the whole word (every source, including jpod101 and
+       custom-json) because this sandboxed frame cannot fetch a custom-json
+       payload; the tracks come over postMessage and are cached here once they
+       land. An entry exists only once resolved (a missing key = not yet asked). */
+    var resolvedTracks = {};
+    /* The in-flight resolve-audio-tracks request, or null: { requestId, key }.
+       One request at a time — the menu is singular. */
+    var pendingAudioRequest = null;
+    /* A play press that could not resolve (its word's custom-json tracks were not
+       in yet), waiting for the host answer to fire. */
+    var pendingPlay = null;
+    /* The speaker button whose menu is open while its word's tracks are still
+       resolving — when the host answers, the menu is re-opened with real rows. */
+    var pendingMenuSource = null;
+    var audioRequestSeq = 0;
 
     function primaryKey(term, reading) { return term + '\u0000' + reading; }
 
@@ -437,34 +456,46 @@ const FRAME_BRIDGE_SCRIPT = `
         try { return JSON.parse(node.textContent || '{}'); } catch (e) { return null; }
     }
 
-    /* Upstream's jpod101 rule: an entirely-kana "term" is really the reading, so
-       it goes in the kana param and kanji is left empty. KANA_RANGES is upstream's own
-       kana span (hiragana + katakana), inlined so the frame needs no host code. */
-    function isStringEntirelyKana(str) {
-        if (str.length === 0) { return false; }
-        for (var i = 0; i < str.length; ++i) {
-            var c = str.codePointAt(i);
-            var isKana = (c >= 0x3040 && c <= 0x309f) || (c >= 0x30a0 && c <= 0x30ff);
-            if (!isKana) { return false; }
-        }
-        return true;
+    /* ---- track resolution -----------------------------------------------
+       The frame builds NOTHING itself any more. A custom-json source needs a
+       network fetch this sandboxed frame cannot make (no CORS on the target,
+       no native plugin), so the HOST resolves the WHOLE word — every source —
+       and answers over postMessage (the same resolveAudioSourcesForTerm the
+       /search/ page uses). The frame caches that per-source track array and
+       renders the menu from it. Until it lands, a menu shows a loading row and
+       a plain click is deferred (pendingPlay).
+       -------------------------------------------------------------- */
+    function requestTracks(key, term, reading) {
+        if (resolvedTracks[key] !== undefined) { return; }
+        if (pendingAudioRequest !== null && pendingAudioRequest.key === key) { return; }
+        var id = ++audioRequestSeq;
+        pendingAudioRequest = { requestId: id, key: key };
+        send({ type: 'resolve-audio-tracks', requestId: id, term: term, reading: reading });
     }
 
-    function buildAudioUrl(source, term, reading) {
-        if (source.type === 'jpod101') {
-            var kanji = term;
-            var kana = reading;
-            if (reading === term && isStringEntirelyKana(term)) { kanji = ''; kana = term; }
-            var params = new URLSearchParams();
-            if (kanji.length > 0) { params.set('kanji', kanji); }
-            if (kana.length > 0) { params.set('kana', kana); }
-            return 'https://assets.languagepod101.com/dictionary/japanese/audiomp3.php?' + params.toString();
+    /* The menu label for one resolved track. A source that expanded into SEVERAL
+       tracks labels each "<source> <n>: <name>" (upstream's
+       "Custom URL (JSON) 1: SMK8 …"); a single-track source keeps its plain name. */
+    function trackLabel(source, track, expanded) {
+        var base = sourceLabel(source);
+        if (!expanded) { return base; }
+        return base + ' ' + (track.subIndex + 1) + (track.name !== undefined ? ': ' + track.name : '');
+    }
+
+    /* Which track a play press should play: the menu's explicit choice, else the
+       track that worked before, else the first playable one. null = none. */
+    function pickTrack(key, tracks, preferred) {
+        if (preferred !== null && preferred !== undefined) {
+            var group = tracks[preferred.sourceIndex];
+            if (group !== undefined && group[preferred.subIndex] !== undefined) { return group[preferred.subIndex]; }
         }
-        if (source.type === 'custom' && typeof source.url === 'string' && source.url.length > 0) {
-            var data = { term: term, reading: reading, language: 'ja' };
-            return source.url.replace(/\{([^}]*)\}/g, function (m0, m1) {
-                return Object.prototype.hasOwnProperty.call(data, m1) ? data[m1] : m0;
-            });
+        var remembered = resolvedPrimary[key];
+        if (remembered !== undefined) {
+            var rg = tracks[remembered.sourceIndex];
+            if (rg !== undefined && rg[remembered.subIndex] !== undefined) { return rg[remembered.subIndex]; }
+        }
+        for (var i = 0; i < tracks.length; ++i) {
+            if (tracks[i] !== undefined && tracks[i].length > 0) { return tracks[i][0]; }
         }
         return null;
     }
@@ -504,30 +535,29 @@ const FRAME_BRIDGE_SCRIPT = `
         return { term: term, reading: reading };
     }
 
-    function playFromButton(button, preferredIndex) {
+    function playFromButton(button, preferred) {
         if (AUDIO_CONFIG === null) { return; }
         var headword = headwordOf(button);
         if (headword === null) { return; }
-        var sources = AUDIO_CONFIG.sources || [];
         var key = primaryKey(headword.term, headword.reading);
-        var remembered = resolvedPrimary[key];
-        var source = null;
-        if (typeof preferredIndex === 'number' && preferredIndex >= 0 && preferredIndex < sources.length) {
-            source = sources[preferredIndex];
-        } else if (typeof remembered === 'number' && remembered >= 0 && remembered < sources.length) {
-            source = sources[remembered];
-        } else {
-            source = sources.length > 0 ? sources[0] : null;
-        }
-        if (source === null) { return; }
-        var url = buildAudioUrl(source, headword.term, headword.reading);
-        if (url === null) {
-            button.title = PLAY_AUDIO_TITLE + '\nCould not find audio (' + sourceLabel(source) + ')';
+        var tracks = resolvedTracks[key];
+        if (tracks === undefined) {
+            /* Tracks not resolved yet (custom-json needs the host). Ask, and fire
+               this exact play when the answer lands — the press is not lost. */
+            pendingPlay = { key: key, button: button, preferred: preferred };
+            requestTracks(key, headword.term, headword.reading);
             return;
         }
-        playUrl(url);
-        resolvedPrimary[key] = source.index;
-        button.title = PLAY_AUDIO_TITLE + '\nFrom ' + sourceLabel(source);
+        var track = pickTrack(key, tracks, preferred);
+        if (track === null) {
+            button.title = PLAY_AUDIO_TITLE + '\nCould not find audio';
+            return;
+        }
+        var source = (AUDIO_CONFIG.sources || [])[track.sourceIndex];
+        var expanded = source !== undefined && tracks[track.sourceIndex] !== undefined && tracks[track.sourceIndex].length > 1;
+        playUrl(track.url);
+        resolvedPrimary[key] = { sourceIndex: track.sourceIndex, subIndex: track.subIndex };
+        button.title = PLAY_AUDIO_TITLE + '\nFrom ' + (source !== undefined ? trackLabel(source, track, expanded) : 'audio');
     }
 
     function closeAudioMenu() {
@@ -548,10 +578,67 @@ const FRAME_BRIDGE_SCRIPT = `
         event.preventDefault();
     }
 
+    function renderAudioMenuItems(itemTemplate, body, sources, key, tracks) {
+        var ankiPin = ankiPrimary[key];
+        for (var i = 0; i < sources.length; ++i) {
+            var src = sources[i];
+            var group = tracks[i] !== undefined ? tracks[i] : [];
+            var expanded = group.length > 1;
+            if (group.length === 0) {
+                /* Configured but resolved to nothing (a scraping source, or a
+                   custom-json word with no tracks): one disabled row so the user
+                   still sees the source is configured. */
+                appendAudioMenuItem(itemTemplate, body, src, { sourceIndex: src.index, subIndex: 0, url: '' }, key, ankiPin, false, false);
+                continue;
+            }
+            for (var t = 0; t < group.length; ++t) {
+                appendAudioMenuItem(itemTemplate, body, src, group[t], key, ankiPin, true, expanded);
+            }
+        }
+    }
+
+    function appendAudioMenuItem(itemTemplate, body, source, track, key, ankiPin, playable, expanded) {
+        var item = itemTemplate.content.firstElementChild.cloneNode(true);
+        var label = item.querySelector('.popup-menu-item-label');
+        if (label !== null) {
+            label.textContent = playable ? trackLabel(source, track, expanded) : sourceLabel(source);
+        }
+        /* "Use as audio for Anki card" button: pins THIS track ({ sourceIndex,
+           subIndex }) as the card-audio primary (upstream's setPrimaryAudio). */
+        var setPrimary = item.querySelector('.popup-menu-item-set-primary-audio-button');
+        if (setPrimary !== null) {
+            var isPinned = ankiPin !== undefined && ankiPin.sourceIndex === track.sourceIndex && ankiPin.subIndex === track.subIndex;
+            if (isPinned) { item.setAttribute('data-is-primary-card-audio', 'true'); }
+            setPrimary.addEventListener('click', function (event) {
+                event.stopPropagation();
+                event.preventDefault();
+                ankiPrimary[key] = { sourceIndex: track.sourceIndex, subIndex: track.subIndex };
+                closeAudioMenu();
+            }, false);
+        }
+        item.setAttribute('data-index', String(track.sourceIndex));
+        item.setAttribute('data-sub-index', String(track.subIndex));
+        if (!playable) { item.setAttribute('data-client-playable', 'false'); }
+        body.appendChild(item);
+    }
+
     function openAudioMenu(source) {
         if (AUDIO_CONFIG === null) { return; }
         var sources = AUDIO_CONFIG.sources || [];
         if (sources.length === 0) { return; }
+        var headword = headwordOf(source);
+        if (headword === null) { return; }
+        var key = primaryKey(headword.term, headword.reading);
+        var tracks = resolvedTracks[key];
+        if (tracks === undefined) {
+            /* Tracks not resolved yet (custom-json needs the host): show a loading
+               row now, ask the host, and re-open with real rows when it answers. */
+            pendingMenuSource = source;
+            requestTracks(key, headword.term, headword.reading);
+            tracks = [];
+        } else {
+            pendingMenuSource = null;
+        }
         closeAudioMenu();
         var template = document.getElementById(AUDIO_MENU_CONTAINER_ID);
         var itemTemplate = document.getElementById(AUDIO_MENU_ITEM_ID);
@@ -560,35 +647,20 @@ const FRAME_BRIDGE_SCRIPT = `
         var container = template.content.firstElementChild.cloneNode(true);
         var body = container.querySelector('.popup-menu-body');
         if (body === null) { return; }
-        var headword = headwordOf(source);
-        var pk = headword !== null ? primaryKey(headword.term, headword.reading) : null;
-        var ankiPrimIdx = pk !== null ? ankiPrimary[pk] : undefined;
-        for (var i = 0; i < sources.length; ++i) {
-            var src = sources[i];
-            var item = itemTemplate.content.firstElementChild.cloneNode(true);
-            var label = item.querySelector('.popup-menu-item-label');
-            if (label !== null) { label.textContent = sourceLabel(src); }
-            /* "Use as audio for Anki card" button: shown and wired so the user
-               can pin the source (upstream's setPrimaryAudio action). */
-            var setPrimary = item.querySelector('.popup-menu-item-set-primary-audio-button');
-            if (setPrimary !== null) {
-                if (ankiPrimIdx === src.index) {
-                    item.setAttribute('data-is-primary-card-audio', 'true');
-                }
-                (function (sp, srcIdx, key) {
-                    sp.addEventListener('click', function (event) {
-                        event.stopPropagation();
-                        event.preventDefault();
-                        if (key !== null) { ankiPrimary[key] = srcIdx; }
-                        closeAudioMenu();
-                    }, false);
-                })(setPrimary, src.index, pk);
-            }
-            item.setAttribute('data-index', String(src.index));
-            body.appendChild(item);
+        if (pendingMenuSource === source) {
+            /* Loading placeholder: one disabled row while the host resolves. */
+            var loading = itemTemplate.content.firstElementChild.cloneNode(true);
+            var loadingLabel = loading.querySelector('.popup-menu-item-label');
+            if (loadingLabel !== null) { loadingLabel.textContent = sourceLabel(sources[0]) + ' \u2026'; }
+            loading.setAttribute('data-client-playable', 'false');
+            var loadingButton = loading.querySelector('.popup-menu-item-audio-button');
+            if (loadingButton !== null) { loadingButton.disabled = true; }
+            body.appendChild(loading);
+        } else {
+            renderAudioMenuItems(itemTemplate, body, sources, key, tracks);
         }
         host.appendChild(container);
-        activeAudioMenu = { container: container, source: source };
+        activeAudioMenu = { container: container, source: source, key: key };
         positionMenu(container, source);
         container.focus();
         container.addEventListener('click', onAudioMenuContainerClick, false);
@@ -599,16 +671,40 @@ const FRAME_BRIDGE_SCRIPT = `
         }
     }
 
+    /* The host's answer to a resolve-audio-tracks request: cache the word's
+       per-source tracks, then fire whatever was waiting — a deferred plain-click
+       play, or the open menu that showed a loading row. */
+    function onAudioTracks(data) {
+        if (pendingAudioRequest === null || data.requestId !== pendingAudioRequest.requestId) { return; }
+        var key = pendingAudioRequest.key;
+        pendingAudioRequest = null;
+        resolvedTracks[key] = data.tracks || [];
+        if (pendingPlay !== null && pendingPlay.key === key) {
+            var play = pendingPlay;
+            pendingPlay = null;
+            if (play.button.isConnected) { playFromButton(play.button, play.preferred); }
+            return;
+        }
+        if (pendingMenuSource !== null && activeAudioMenu !== null && activeAudioMenu.key === key) {
+            var src = pendingMenuSource;
+            pendingMenuSource = null;
+            if (src.isConnected) { openAudioMenu(src); }
+        }
+    }
+
     function onAudioMenuItemClick(event) {
         var item = event.currentTarget;
         if (activeAudioMenu === null || item.disabled) { return; }
         var sourceButton = activeAudioMenu.source;
         var group = item.closest('.popup-menu-item-group');
-        var index = Number.parseInt(group ? group.getAttribute('data-index') : '', 10);
+        var sourceIndex = Number.parseInt(group ? group.getAttribute('data-index') : '', 10);
+        var subIndex = Number.parseInt(group ? group.getAttribute('data-sub-index') : '', 10);
         closeAudioMenu();
         event.stopPropagation();
         event.preventDefault();
-        if (Number.isFinite(index)) { playFromButton(sourceButton, index); }
+        if (Number.isFinite(sourceIndex) && Number.isFinite(subIndex)) {
+            playFromButton(sourceButton, { sourceIndex: sourceIndex, subIndex: subIndex });
+        }
     }
 
     /* The buttons are wired once: the frame's card set is drawn once per document
@@ -680,6 +776,16 @@ const FRAME_BRIDGE_SCRIPT = `
             case 'navigate-next': send({ type: 'next' }); break;
         }
     });
+
+    /* The host's answer to a resolve-audio-tracks request arrives here. The frame
+       is sandboxed, so it cannot fetch a custom-json payload itself — the host
+       (which reaches the native plugin) resolves and posts the tracks back. */
+    window.addEventListener('message', function (event) {
+        var data = event.data;
+        if (data === null || typeof data !== 'object') { return; }
+        if (data.channel !== CHANNEL || data.type !== 'audio-tracks') { return; }
+        onAudioTracks(data);
+    }, false);
 
     bindAudioButtons();
 })();

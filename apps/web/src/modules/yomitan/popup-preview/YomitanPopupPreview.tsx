@@ -55,11 +55,14 @@ import {
   renderPopupCard,
   resolvePopupAppearance,
   resolvePreviewTerm,
+  resolveAndPostAudioTracks,
   sourceIsPopupFrame,
   stepPopupHistory,
   type PopupDictionaryInfo,
   type PopupHistoryState,
 } from '@/modules/yomitan/popup-preview';
+import { toAudioSourceInfos } from '@/modules/yomitan/audio/audio-sources';
+import { activeProfileOptions } from '@/modules/yomitan/yomitan-preferences';
 
 /**
  * This row's own English strings.
@@ -233,6 +236,16 @@ export function YomitanPopupPreview({
          with, which is what the frame's `data-index` points into. */
       if (request.type === 'log-debug-info') {
         logPopupEntryDebugInfo(request.index, builtRef.current?.entries ?? []);
+        return;
+      }
+      if (request.type === 'resolve-audio-tracks') {
+        /* Sandboxed frame cannot fetch a custom-json payload; the host resolves
+           and posts the word's tracks back (same helper the floating popup uses). */
+        const frame = iframeRef.current;
+        if (frame !== null) {
+          const sources = toAudioSourceInfos(activeProfileOptions(options).audio?.sources);
+          resolveAndPostAudioTracks(frame, request.requestId, sources, request.term, request.reading);
+        }
         return;
       }
       if (request.type === 'close') {

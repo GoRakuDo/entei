@@ -30,7 +30,8 @@
 
 import {
   playUrl,
-  resolveAudioUrl,
+  resolveAudioSourcesForTerm,
+  type AudioInfo,
 } from '@/modules/yomitan/audio/audio-resolver';
 import type { AudioSourceInfo } from '@/modules/yomitan/audio/audio-sources';
 import { audioSourceLabel } from '@/modules/yomitan/audio/audio-sources';
@@ -78,9 +79,13 @@ export function mountAudioMenuTemplates(templates: string): void {
   document.body.append(fragment);
 }
 
-/** Sources the current speaker press resolved successfully, keyed by headword. */
-interface ResolvedPrimary {
-  index: number;
+/** A track reference: which source's which track. */
+interface TrackRef {
+  sourceIndex: number;
+  subIndex: number;
+}
+/** The track that last played per headword key (carries its url for replay). */
+interface PlayedTrack extends TrackRef {
   url: string;
 }
 
@@ -131,12 +136,18 @@ export class YomitanAudioController {
   private readonly disposers: Array<() => void> = [];
   /** The element currently playing, stopped before the next plays. */
   private current: HTMLAudioElement | null = null;
-  /** The source that worked per headword key, so a plain click replays it. */
-  private readonly primary = new Map<string, ResolvedPrimary>();
+  /** The track that worked per headword key, so a plain click replays it. */
+  private readonly primary = new Map<string, PlayedTrack>();
   /** The user's explicit "Use as audio for Anki card" choice per headword key.
       Separate from `primary` so the playback auto-primary and the Anki
-      card-audio pin stay independent (the popup keeps the same split). */
-  private readonly ankiPrimary = new Map<string, number>();
+      card-audio pin stay independent (the popup keeps the same split). Now a
+      `{ sourceIndex, subIndex }` ref so it can pin ONE track of a `custom-json`
+      source that expanded into several. */
+  private readonly ankiPrimary = new Map<string, TrackRef>();
+  /** Resolved track lists per headword key (`resolveAudioSourcesForTerm` result),
+      so the menu and the plain-click replay read the SAME tracks without
+      refetching. Filled lazily on first menu open / play for a word. */
+  private readonly resolvedTracks = new Map<string, AudioInfo[][]>();
   /** The one open menu, closed before another opens. */
   private openMenu: { container: HTMLElement; source: HTMLElement } | null = null;
 
@@ -158,7 +169,7 @@ export class YomitanAudioController {
         event.preventDefault();
         event.stopPropagation();
         if (event.shiftKey) {
-          this.openAudioMenu(button);
+          void this.openAudioMenu(button);
         } else {
           void this.playFromButton(button, null);
         }
@@ -166,7 +177,7 @@ export class YomitanAudioController {
       const onContextMenu = (event: MouseEvent): void => {
         event.preventDefault();
         event.stopPropagation();
-        this.openAudioMenu(button);
+        void this.openAudioMenu(button);
       };
       button.addEventListener('click', onClick, false);
       button.addEventListener('contextmenu', onContextMenu, false);
@@ -233,38 +244,93 @@ export class YomitanAudioController {
   /**
    * Resolve the button's word and play it.
    *
-   * `preferredIndex` pins a specific source (a menu choice); `null` means "the
-   * source that worked before, else the first configured one". Falls back to the
-   * click when nothing resolves — the honest "no audio here" signal.
+   * `preferred` pins a specific track (a menu choice, `{ sourceIndex, subIndex }`);
+   * `null` means "the track that worked before, else the first playable one".
+   * Falls back to the click when nothing resolves — the honest "no audio here"
+   * signal. Resolves the word's FULL track list (so a `custom-json` source can
+   * yield several) and plays the chosen one.
    */
   private async playFromButton(
     button: HTMLButtonElement,
-    preferredIndex: number | null,
+    preferred: TrackRef | null,
   ): Promise<void> {
     const target = this.headwordTarget(button);
     if (target === null) return;
     const key = `${target.term}\u0000${target.reading}`;
-    const source =
-      (preferredIndex !== null ? this.sources[preferredIndex] : undefined) ??
-      this.sources[this.primary.get(key)?.index ?? 0] ??
-      this.sources[0];
-    if (source === undefined) {
+    const resolved = await this.resolveTracks(key, target);
+    const track = this.pickTrack(key, resolved, preferred);
+    if (track === null) {
       this.markButtons(target, 'Could not find audio');
       return;
     }
-    const url = await resolveAudioUrl(source, target.term, target.reading);
-    if (url === null) {
-      this.markButtons(target, `Could not find audio (${audioSourceLabel(source)})`);
-      return;
-    }
-    const played = await playUrl(url, this.volume, this.current);
+    const played = await playUrl(track.url, this.volume, this.current);
     if (played === null) {
-      this.markButtons(target, `Could not find audio (${audioSourceLabel(source)})`);
+      this.markButtons(target, `Could not find audio (${this.trackLabel(resolved, track)})`);
       return;
     }
     this.current = played;
-    this.primary.set(key, { index: source.index, url });
-    this.markButtons(target, `From ${audioSourceLabel(source)}`);
+    this.primary.set(key, { sourceIndex: track.sourceIndex, subIndex: track.subIndex, url: track.url });
+    this.markButtons(target, `From ${this.trackLabel(resolved, track)}`);
+  }
+
+  /**
+   * The word's resolved track lists, one array per configured source.
+   *
+   * Cached per headword key so the menu and a plain-click replay read the SAME
+   * resolution without refetching the `custom-json` payload.
+   */
+  private async resolveTracks(
+    key: string,
+    target: HeadwordAudioTarget,
+  ): Promise<AudioInfo[][]> {
+    const cached = this.resolvedTracks.get(key);
+    if (cached !== undefined) return cached;
+    const resolved = await resolveAudioSourcesForTerm(this.sources, target.term, target.reading);
+    this.resolvedTracks.set(key, resolved);
+    return resolved;
+  }
+
+  /**
+   * Which track a play press should play.
+   *
+   * `preferred` (a menu choice) wins; else the track that worked before; else the
+   * first playable track across the sources. `null` when nothing resolved.
+   */
+  private pickTrack(
+    key: string,
+    resolved: readonly AudioInfo[][],
+    preferred: TrackRef | null,
+  ): AudioInfo | null {
+    if (preferred !== null) {
+      const track = resolved[preferred.sourceIndex]?.[preferred.subIndex];
+      if (track !== undefined) return track;
+    }
+    const remembered = this.primary.get(key);
+    if (remembered !== undefined) {
+      const track = resolved[remembered.sourceIndex]?.[remembered.subIndex];
+      if (track !== undefined) return track;
+    }
+    for (const group of resolved) {
+      const first = group[0];
+      if (first !== undefined) return first;
+    }
+    return null;
+  }
+
+  /**
+   * The menu label for one resolved track.
+   *
+   * A source that expanded into SEVERAL tracks labels each `"<source> <n>: <name>"`
+   * (upstream's `Custom URL (JSON) 1: SMK8 …`); a single-track source keeps its
+   * plain friendly name.
+   */
+  private trackLabel(resolved: readonly AudioInfo[][], track: AudioInfo): string {
+    const source = this.sources[track.sourceIndex];
+    const base = source !== undefined ? audioSourceLabel(source) : 'Audio';
+    const group = resolved[track.sourceIndex] ?? [];
+    if (group.length <= 1) return base;
+    const name = track.name !== undefined ? `: ${track.name}` : '';
+    return `${base} ${track.subIndex + 1}${name}`;
   }
 
   /** The word a speaker button plays, read off the card DOM. */
@@ -299,8 +365,18 @@ export class YomitanAudioController {
     }
   }
 
-  /** Open the audio-source menu for `button`, replacing any open one. */
-  private openAudioMenu(button: HTMLButtonElement): void {
+  /** Open the audio-source menu for `button`, replacing any open one.
+   *
+   * Each configured source is resolved for the word FIRST (awaiting the
+   * `custom-json` native fetch), then every resolved track becomes its own menu
+   * item. A source that resolved to several tracks expands into `"<source> <n>:
+   * <name>"` sub-items (`Custom URL (JSON) 1: SMK8 …`); a single-track source
+   * keeps its plain friendly name; a source with NO tracks is still listed, marked
+   * `data-client-playable="false"` so the choice is honest about what will happen.
+   * Every item carries `data-index` (source) + `data-sub-index` (track) and an
+   * Anki pin button that remembers that exact `{ sourceIndex, subIndex }`.
+   */
+  private async openAudioMenu(button: HTMLButtonElement): Promise<void> {
     this.closeMenu();
     if (this.sources.length === 0) return;
     const template = document.getElementById('audio-button-popup-menu-template');
@@ -316,49 +392,73 @@ export class YomitanAudioController {
       return;
     }
     const target = this.headwordTarget(button);
-    const primaryKey =
-      target !== null ? `${target.term}\u0000${target.reading}` : null;
-    const ankiPrimaryIndex =
-      primaryKey !== null ? this.ankiPrimary.get(primaryKey) : undefined;
+    if (target === null) return;
+    const primaryKey = `${target.term}\u0000${target.reading}`;
+    // Resolve every source's tracks for this word before drawing, so the menu
+    // shows the real expansion (and the native custom-json fetch is cached for a
+    // subsequent plain-click replay).
+    const resolved = await this.resolveTracks(primaryKey, target);
+    const ankiPin = this.ankiPrimary.get(primaryKey);
 
     const menuContainer = (
       template.content.firstElementChild as HTMLElement
     ).cloneNode(true) as HTMLElement;
     const body = menuContainer.querySelector<HTMLElement>('.popup-menu-body');
     if (body === null) return;
-    for (const source of this.sources) {
-      const item = (
-        itemTemplate.content.firstElementChild as HTMLElement
-      ).cloneNode(true) as HTMLElement;
-      const label = item.querySelector<HTMLElement>('.popup-menu-item-label');
-      if (label !== null) label.textContent = audioSourceLabel(source);
+    for (let sourceIndex = 0; sourceIndex < this.sources.length; sourceIndex += 1) {
+      const source = this.sources[sourceIndex];
+      if (source === undefined) continue;
+      const tracks = resolved[sourceIndex] ?? [];
+      const expanded = tracks.length > 1;
+      // A source with no tracks still gets ONE (disabled) row so the user sees
+      // it is configured; a source with tracks gets one row per track.
+      const rows: AudioInfo[] = tracks.length > 0
+        ? tracks
+        : [{ type: 'url', url: '', sourceIndex, subIndex: 0 }];
+      for (const track of rows) {
+        const playable = tracks.length > 0;
+        const label = expanded
+          ? `${audioSourceLabel(source)} ${track.subIndex + 1}${track.name !== undefined ? `: ${track.name}` : ''}`
+          : audioSourceLabel(source);
+        const isPinned =
+          ankiPin !== undefined &&
+          ankiPin.sourceIndex === sourceIndex &&
+          ankiPin.subIndex === track.subIndex;
+        const item = (
+          itemTemplate.content.firstElementChild as HTMLElement
+        ).cloneNode(true) as HTMLElement;
+        const labelNode = item.querySelector<HTMLElement>('.popup-menu-item-label');
+        if (labelNode !== null) labelNode.textContent = label;
 
-      // "Use as audio for Anki card" button: shown alongside each source so the
-      // user can pin it as the card-audio primary (upstream's setPrimaryAudio).
-      const setPrimary = item.querySelector<HTMLButtonElement>(
-        '.popup-menu-item-set-primary-audio-button',
-      );
-      if (setPrimary !== null) {
-        if (ankiPrimaryIndex === source.index) {
-          item.setAttribute('data-is-primary-card-audio', 'true');
-        }
-        setPrimary.addEventListener('click', (event) => {
-          event.stopPropagation();
-          event.preventDefault();
-          if (primaryKey !== null) {
-            this.ankiPrimary.set(primaryKey, source.index);
+        // "Use as audio for Anki card" button: pins THIS track (source + track)
+        // as the card-audio primary (upstream's setPrimaryAudio).
+        const setPrimary = item.querySelector<HTMLButtonElement>(
+          '.popup-menu-item-set-primary-audio-button',
+        );
+        if (setPrimary !== null) {
+          if (isPinned) {
+            item.setAttribute('data-is-primary-card-audio', 'true');
           }
-          this.closeMenu();
-        }, false);
-      }
+          setPrimary.addEventListener('click', (event) => {
+            event.stopPropagation();
+            event.preventDefault();
+            this.ankiPrimary.set(primaryKey, {
+              sourceIndex,
+              subIndex: track.subIndex,
+            });
+            this.closeMenu();
+          }, false);
+        }
 
-      item.dataset.index = `${source.index}`;
-      if (!source.clientPlayable) {
-        // Configured but not client-resolvable: still listed, marked so the
-        // choice is honest about what will happen.
-        item.dataset.clientPlayable = 'false';
+        item.dataset.index = `${sourceIndex}`;
+        item.dataset.subIndex = `${track.subIndex}`;
+        if (!playable) {
+          // Configured but resolved to nothing: still listed, marked so the
+          // choice is honest about what will happen.
+          item.dataset.clientPlayable = 'false';
+        }
+        body.appendChild(item);
       }
-      body.appendChild(item);
     }
     this.menuContainer.appendChild(menuContainer);
     this.openMenu = { container: menuContainer, source: button };
@@ -369,9 +469,10 @@ export class YomitanAudioController {
         event.preventDefault();
         this.closeMenu();
         const group = audioButton.closest<HTMLElement>('.popup-menu-item-group');
-        const index = Number.parseInt(group?.dataset.index ?? '', 10);
-        if (Number.isFinite(index)) {
-          void this.playFromButton(button, index);
+        const sourceIndex = Number.parseInt(group?.dataset.index ?? '', 10);
+        const subIndex = Number.parseInt(group?.dataset.subIndex ?? '', 10);
+        if (Number.isFinite(sourceIndex) && Number.isFinite(subIndex)) {
+          void this.playFromButton(button, { sourceIndex, subIndex });
         }
       }, false);
     }

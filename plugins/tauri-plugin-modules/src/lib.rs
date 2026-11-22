@@ -4,6 +4,8 @@
 //! a single Tauri plugin (`tauri-plugin-modules`):
 //!
 //! - `clipboard` (`modules_clipboard_read_text`)
+//! - `fetch` (`modules_fetch_text`) — native cross-origin GET the webview's
+//!   `fetch` cannot make (no CORS headers on the target)
 //! - `jimaku` (`modules_jimaku_*`)
 //! - `nadeshiko` (`modules_nadeshiko_*`)
 //! - `yomitan` (`yomitan_*`)
@@ -11,6 +13,7 @@
 //! - `ytdlp` (`get_video_info`, `stream_youtube`)
 
 pub mod clipboard;
+pub mod fetch;
 pub mod jimaku;
 pub mod nadeshiko;
 pub mod torrent;
@@ -110,6 +113,17 @@ async fn modules_nadeshiko_user_me(api_key: String) -> Result<NadeshikoUserMe, N
 /// `None` covers every kind of "no text" — an empty clipboard, a non-text one, a
 /// locked one, and a desktop build with no clipboard backend at all — so the
 /// caller never has to branch on a failure to keep the search page alive.
+/// GET `url` and return the body as text, natively.
+///
+/// The webview's `fetch` is blocked by CORS when the target sends no
+/// `Access-Control-Allow-Origin` header — which a user's local audio server does
+/// not. This is the native pipe that reads such a payload anyway, so the Yomitan
+/// `Custom URL (JSON)` audio source (a JSON list of per-word tracks) can be
+/// resolved. The body is returned raw; the renderer parses and validates it.
+#[tauri::command]
+async fn modules_fetch_text(url: String) -> Result<String, String> {
+    fetch::fetch_text(&url).await
+}
 #[tauri::command]
 async fn modules_clipboard_read_text() -> Option<String> {
     tauri::async_runtime::spawn_blocking(clipboard::read_plain_text)
@@ -321,6 +335,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             modules_nadeshiko_segment_context,
             modules_nadeshiko_user_me,
             modules_clipboard_read_text,
+            modules_fetch_text,
             yomitan_import_dictionary,
             yomitan_list_dictionaries,
             yomitan_toggle_dictionary,

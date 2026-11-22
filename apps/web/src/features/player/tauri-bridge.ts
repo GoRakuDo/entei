@@ -290,6 +290,34 @@ export async function readClipboardTextDirect(): Promise<string | null> {
   }
 }
 
+/**
+ * GET `url` and return the response body as text, natively.
+ *
+ * The webview's own `fetch` is blocked by CORS whenever the target sends no
+ * `Access-Control-Allow-Origin` header — which a user's local audio server
+ * (`localhost:5050`) does not. Yomitan's `Custom URL (JSON)` audio source needs
+ * exactly that lookup: it fetches a JSON payload listing the tracks for a word.
+ * This routes the GET through the native plugin (`tauri-plugin-modules`), which
+ * is not bound by the CORS rule.
+ *
+ * Outside Tauri (plain web / tests) it falls back to the platform `fetch`, so
+ * the same call site works everywhere; a CORS-blocked target simply rejects
+ * there, which the caller treats as "no audio".
+ *
+ * The body is returned raw. Parsing and validating the payload is the caller's
+ * job, so this stays a dumb pipe and the reason string never carries user data.
+ */
+export async function fetchTextDirect(url: string): Promise<string> {
+  if (isTauri()) {
+    return invokePluginCommand<string>('plugin:modules|modules_fetch_text', { url });
+  }
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`http status ${response.status}`);
+  }
+  return response.text();
+}
+
 /* ---------------------------------------------------------------------------
  * Yomitan dictionaries (native engine)
  * --------------------------------------------------------------------------
