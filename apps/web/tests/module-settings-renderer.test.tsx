@@ -165,13 +165,15 @@ describe('ModuleSettingsRenderer — sections', () => {
   it('renders one collapsible section per manifest entry', () => {
     renderSettings();
     const toggles = screen.getAllByRole('button', { expanded: false });
-    expect(toggles).toHaveLength(yomitanSettingsTree.length);
+    // sentence-parsing is hidden via sectionLayouts (migrated to Parsing); 18 tree sections - 1 hidden = 17
+    expect(toggles).toHaveLength(yomitanSettingsTree.length - 1);
   });
 
   it('gives every section header a leading icon when the manifest asks for it', () => {
     const { container } = renderSettings(true);
     const headers = container.querySelectorAll('.entei-module-section-toggle');
-    expect(headers.length).toBe(yomitanSettingsTree.length);
+    // sentence-parsing is hidden via sectionLayouts; 18 tree sections - 1 hidden = 17
+    expect(headers.length).toBe(yomitanSettingsTree.length - 1);
     for (const header of headers) {
       const icon = header.querySelector('.entei-module-section-icon');
       expect(icon).not.toBeNull();
@@ -1020,11 +1022,16 @@ describe('ModuleSettingsRenderer — the shipped Parsing layout', () => {
    * romaji → kana switch is NOT here any more: it belongs to the input the user
    * types into, so the manifest moved it to the Search Window card (see below).
    * The two parser toggles (internal parser + MeCab) are also left OUT of the
-   * UI: they keep their upstream defaults, so only the two presentation rows
-   * (term spacing + reading mode) are declared here.
+   * UI: they keep their upstream defaults, so only the presentation rows are
+   * declared here — term spacing + reading mode, plus two more the app pulls in
+   * from sibling tree sections: sentenceParsing.scanExtent (from Sentence
+   * Parsing) and translation.searchResolution (from Translation). Claiming them
+   * here hides their original cards' copies.
    */
   const PARSING_LABELS = [
     'Show space between parsed words',
+    'Sentence scanning extent',
+    'Lookup resolution',
     'Reading mode',
   ];
 
@@ -1048,7 +1055,7 @@ describe('ModuleSettingsRenderer — the shipped Parsing layout', () => {
     );
   }
 
-  it('draws the two declared rows once each', () => {
+  it('draws the declared rows once each', () => {
     const { container } = renderShipped();
     // The section is called Parsing; Sentence Parsing is a different card, so the
     // accessible name has to be matched exactly.
@@ -1063,12 +1070,42 @@ describe('ModuleSettingsRenderer — the shipped Parsing layout', () => {
     for (const label of PARSING_LABELS) {
       expect(screen.getAllByText(label)).toHaveLength(1);
     }
-    // The parser toggles are hidden: one switch (term spacing), one combobox.
+    // The parser toggles are hidden: one switch (term spacing), two comboboxes
+    // (lookup resolution + reading mode), one number input (scan extent).
     expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(1);
-    expect(section?.querySelectorAll('.entei-module-select')).toHaveLength(1);
-    // ...and nothing else: no stray textarea or number input in this section.
+    expect(section?.querySelectorAll('.entei-module-select')).toHaveLength(2);
+    // No stray textarea; the single number input is scan extent.
     expect(section?.querySelectorAll('textarea')).toHaveLength(0);
-    expect(section?.querySelectorAll('input[type="number"]')).toHaveLength(0);
+    expect(section?.querySelectorAll('input[type="number"]')).toHaveLength(1);
+  });
+
+  it('keeps the lookup resolution choices in upstream order', () => {
+    const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
+    const parsing = yomitan?.sectionLayouts?.find(
+      (layout) => layout.section === 'parsing',
+    );
+    const resolution = parsing?.rows.find(
+      (row) => row.field === 'translation.searchResolution',
+    );
+    expect(resolution?.label).toBe('Lookup resolution');
+    expect(resolution?.options?.map((option) => option.value)).toEqual([
+      'letter',
+      'word',
+    ]);
+  });
+
+  it('declares sentence scanning extent with the app\'s own wording', () => {
+    const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
+    const parsing = yomitan?.sectionLayouts?.find(
+      (layout) => layout.section === 'parsing',
+    );
+    const extent = parsing?.rows.find(
+      (row) => row.field === 'sentenceParsing.scanExtent',
+    );
+    expect(extent?.label).toBe('Sentence scanning extent');
+    expect(extent?.description).toBe(
+      'Adjust how many characters are bidirectionally scanned to form a sentence.',
+    );
   });
 
   it('keeps the reading mode choices in upstream order', () => {

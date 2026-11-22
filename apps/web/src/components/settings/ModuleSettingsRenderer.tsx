@@ -267,7 +267,12 @@ function SchemaSettings({ module, dict }: SchemaSettingsProps) {
 
   return (
     <div className="entei-module-settings">
-      {sections.map((section) => (
+      {sections.filter((section) => {
+        /* Sections explicitly hidden in sectionLayouts (e.g. residual descriptor-tree
+           sections migrated elsewhere) are suppressed entirely from the page. */
+        const layout = module.sectionLayouts?.find((c) => c.section === section.key);
+        return layout?.hidden !== true;
+      }).map((section) => (
         <ModuleSection
           key={section.key}
           section={section}

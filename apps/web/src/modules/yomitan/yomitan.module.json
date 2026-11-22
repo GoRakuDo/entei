@@ -497,6 +497,29 @@
         },
         {
           "layout": "field",
+          "field": "sentenceParsing.scanExtent",
+          "label": "Sentence scanning extent",
+          "description": "Adjust how many characters are bidirectionally scanned to form a sentence."
+        },
+        {
+          "layout": "field",
+          "field": "translation.searchResolution",
+          "type": "select",
+          "label": "Lookup resolution",
+          "description": "\"A dog\" → search for \"A dog\", \"A do\", \"A d\", \"A\"\nor\n\"A dog\" → \"A dog\", \"A\"",
+          "options": [
+            {
+              "value": "letter",
+              "label": "Letter"
+            },
+            {
+              "value": "word",
+              "label": "Word"
+            }
+          ]
+        },
+        {
+          "layout": "field",
           "field": "parsing.readingMode",
           "type": "select",
           "label": "Reading mode",
@@ -575,6 +598,11 @@
           ]
         }
       ]
+    },
+    {
+      "section": "sentence-parsing",
+      "rows": [],
+      "hidden": true
     }
   ]
 }

@@ -262,6 +262,10 @@ export interface EnteiModuleRowBinding {
 export interface EnteiModuleSectionLayout {
   /** `key` of the section in the module's `settingsSchema`. */
   section: string;
+  /** When true, the section card is suppressed from the rendered settings page
+   *  entirely (used to hide residual descriptor-tree sections that have been
+   *  migrated elsewhere). Declared as `"hidden": true` in `*.module.json`. */
+  hidden?: boolean;
   /** Heading text, replacing the descriptor's own (absent = keep the tree's). */
   label?: string;
   /** Heading description, replacing the descriptor's own (absent = keep it). */
@@ -560,8 +564,10 @@ export function normalizeSectionLayouts(
       }
       rows.push(binding);
     }
-    if (rows.length === 0) continue;
+    const hidden = raw.hidden === true;
+    if (rows.length === 0 && !hidden) continue;
     const sectionLayout: EnteiModuleSectionLayout = { section, rows };
+    if (hidden) sectionLayout.hidden = true;
     /* The section's own re-text, when the manifest declares one. Parsed with the
        same rule as every other manifest string: an empty or non-string value is
        ABSENT rather than blank, so a typo falls back to the tree's wording instead
