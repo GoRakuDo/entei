@@ -32,26 +32,10 @@ export function PlayingCardsFan({
       aria-hidden="true"
       {...props}
     >
-      {/* Left card — fanned counter-clockwise */}
-      <rect
-        x={3.5}
-        y={6}
-        width={7.5}
-        height={11}
-        rx={1.2}
-        transform="rotate(-20 7.25 16)"
-      />
-      {/* Middle card — fanned clockwise */}
-      <rect
-        x={13}
-        y={6}
-        width={7.5}
-        height={11}
-        rx={1.2}
-        transform="rotate(20 16.75 16)"
-      />
-      {/* Center card — front of the fan */}
-      <rect x={8.25} y={5} width={7.5} height={12} rx={1.2} />
+      {/* Official Lucide 1.36.0 playing-cards-fan path data */}
+      <path d="M12.65 7.65a2 2 0 012.629-1.046l5.51 2.374a2 2 0 011.046 2.628l-3.957 9.184a2 2 0 01-2.628 1.046l-5.51-2.374a2 2 0 01-1.046-2.628z" />
+      <path d="M18 7.777V4a2 2 0 00-2-2h-6a2 2 0 00-2 2v10a2 2 0 001.137 1.805" />
+      <path d="m8 4.389-4.364.809a2 2 0 00-1.602 2.33l1.822 9.833a2 2 0 002.331 1.602l2.542-.47" />
     </svg>
   );
 }
