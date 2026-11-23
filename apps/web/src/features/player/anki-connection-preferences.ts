@@ -46,28 +46,9 @@ export type DuplicateBehavior = 'allow' | 'prevent' | 'overwrite';
 /** Window opened from the View added note button. */
 export type OpenNoteViewer = 'note-editor' | 'browser';
 
-/**
- * Default Yomitan Handlebars card template. Stored as a preference for
- * advanced users (matches the Chrome-extension default). Rendering is NOT
- * wired to the player mining pipeline yet — this is storage-only for now.
- */
-export const DEFAULT_CARD_TEMPLATES = `{{#inline "glossary-single"}}
-    {{~#unless brief~}}
-        {{~#scope~}}
-            {{~set "any" false~}}
-            {{~#each definitionTags~}}{{#if (op "||" (op "!" @root.compactTags) (op "!" .redundant))~}}
-                {{~#if (get "any")}}, {{else}}<i>(</i>{{/if~}}
-                {{~name~}}
-                {{~set "any" true~}}
-            {{~/if~}}{{~/each~}}
-            {{~#if (get "any")}}<i>)</i><br>{{/if~}}
-            {{~#if definitions~}}{{#each definitions}}{{#if (get "any")}}<br>{{/if~}}
-                {{~definition~}}
-                {{~set "any" true~}}
-            {{~/each~}}{{/if~}}
-        {{~/scope~}}
-    {{~/unless~}}
-{{~/inline~}}`;
+import { DEFAULT_CARD_TEMPLATES } from './default-card-templates';
+
+export { DEFAULT_CARD_TEMPLATES };
 
 export const ANKI_CONNECTION_PREFS_KEY = 'entei.player.anki-connection.v1';
 
