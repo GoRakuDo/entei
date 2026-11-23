@@ -20,7 +20,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Layers } from 'lucide-react';
+import { LayersPlus } from 'lucide-react';
 import { Switch } from '@/components/player/ui/switch';
 import {
   Select,
@@ -129,7 +129,7 @@ export function AnkiCardManagementsCard({
   return (
     <section className="entei-settings-section-card entei-anki-card-managements-card">
       <h3 className="entei-settings-label">
-        <Layers size={16} aria-hidden="true" />
+        <LayersPlus size={16} aria-hidden="true" />
         <span>{dict.title}</span>
       </h3>
 
