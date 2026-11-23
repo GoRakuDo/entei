@@ -1933,6 +1933,15 @@ body[data-page='settings'] .entei-main {
   gap: var(--entei-space-8);
 }
 
+/* Yomitan official card-format SVG icon (green gradient + white plus). */
+.entei-anki-card-format-icon {
+  flex: 0 0 auto;
+  display: block;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
 /* Field / Value mapping table inside an expanded profile. */
 .entei-anki-profile-fields {
   display: flex;
@@ -1990,14 +1999,6 @@ body[data-page='settings'] .entei-main {
 
 .entei-anki-profile-remove:hover {
   color: oklch(78% 0.19 25deg);
-}
-
-/* Icon badge shown at the left of each profile header (⊕/⊞/◆). */
-.entei-anki-profile-icon-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--entei-btn-color);
 }
 
 /* Value column: input + marker trigger sit side by side. */

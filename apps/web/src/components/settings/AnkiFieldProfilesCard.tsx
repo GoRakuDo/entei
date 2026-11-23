@@ -40,13 +40,9 @@ import {
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
-  Circle,
-  CirclePlus,
-  DiamondPlus,
   FileStack,
   SquarePlus,
   Trash2,
-  type LucideIcon,
 } from 'lucide-react';
 import { Input } from '@/components/player/ui/input';
 import { SettingsButton } from '@/components/settings/SettingsButton';
@@ -79,12 +75,12 @@ import type { Dictionary } from '@/i18n/types';
 
 const SCREENSHOT_FORMAT_OPTIONS: ScreenshotFormat[] = ['png', 'jpeg'];
 
-/** Icon shown on the card-format profile button (matches Yomitan ⊕ ⊞ ◆ symbols). */
-const ICON_GLYPHS: Record<AnkiCardFormatIcon, LucideIcon> = {
-  'big-circle': CirclePlus,
-  'small-circle': Circle,
-  'big-square': SquarePlus,
-  'big-diamond': DiamondPlus,
+/** Yomitan official card-format SVG icons (public/yomitan/images/). */
+const ICON_SRC: Record<AnkiCardFormatIcon, string> = {
+  'big-circle': '/yomitan/images/big-circle.svg',
+  'small-circle': '/yomitan/images/small-circle.svg',
+  'big-square': '/yomitan/images/big-square.svg',
+  'big-diamond': '/yomitan/images/big-diamond.svg',
 };
 
 export interface AnkiFieldProfilesCardProps {
@@ -319,15 +315,6 @@ export function AnkiFieldProfilesCard({
                 aria-expanded={expanded}
                 onClick={() => setExpandedId(expanded ? null : format.id)}
               >
-                <span className="entei-anki-profile-icon-badge">
-                  {(() => {
-                    const IconGlyph = ICON_GLYPHS[format.icon];
-                    // small-circle renders slightly smaller so the glyph matches
-                    // its Yomitan counterpart (small filled dot vs. big ⊕).
-                    const iconSize = format.icon === 'small-circle' ? 12 : 16;
-                    return <IconGlyph size={iconSize} aria-hidden="true" />;
-                  })()}
-                </span>
                 <span className="entei-anki-profile-name">{format.name}</span>
                 {expanded ? (
                   <ChevronUp size={16} aria-hidden="true" />
@@ -377,6 +364,13 @@ export function AnkiFieldProfilesCard({
                           className="entei-module-select"
                           aria-label={dict.buttonFieldLabel}
                         >
+                          <img
+                            src={ICON_SRC[format.icon]}
+                            alt=""
+                            width={16}
+                            height={16}
+                            className="entei-anki-card-format-icon"
+                          />
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -387,17 +381,20 @@ export function AnkiFieldProfilesCard({
                               ['big-square', dict.iconBigSquare],
                               ['big-diamond', dict.iconBigDiamond],
                             ] as readonly [AnkiCardFormatIcon, string][]
-                          ).map(([icon, label]) => {
-                            const Glyph = ICON_GLYPHS[icon];
-                            return (
+                          ).map(([icon, label]) => (
                               <SelectItem key={icon} value={icon}>
                                 <span className="entei-anki-profile-icon-option">
-                                  <Glyph size={14} aria-hidden="true" />
+                                  <img
+                                    src={ICON_SRC[icon]}
+                                    alt=""
+                                    width={16}
+                                    height={16}
+                                    className="entei-anki-card-format-icon"
+                                  />
                                   <span>{label}</span>
                                 </span>
                               </SelectItem>
-                            );
-                          })}
+                            ))}
                         </SelectContent>
                       </Select>
                     </div>
