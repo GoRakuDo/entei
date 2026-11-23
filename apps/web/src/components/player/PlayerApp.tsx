@@ -188,6 +188,7 @@ import {
   updateNoteFieldsAndAddTags,
   addTagsOnlyIfAny,
 } from '@/features/player/anki-export-client';
+import { readAnkiConnectionPreferences } from '@/features/player/anki-connection-preferences';
 import {
   AnkiConnectClient,
   runAnkiConnectionFlow,
@@ -4485,6 +4486,24 @@ export default function PlayerApp() {
         if (typeof noteId !== 'number' || noteId <= 0) {
           notifyMiningExportError(d.exportError);
           return;
+        }
+
+        // Suspend the freshly-created card if configured (Card Management).
+        // Suspend failure must NOT roll back the successful card creation —
+        // the note is already in the collection, so a failed suspend only
+        // warns and leaves the card active.
+        if (readAnkiConnectionPreferences().suspendNewCards) {
+          try {
+            const cards = await client.findCards(
+              'nid:' + noteId,
+              abortController.signal,
+            );
+            if (cards.length > 0) {
+              await client.suspend(cards, abortController.signal);
+            }
+          } catch (e) {
+            console.warn('[AnkiExport] suspend failed (card kept):', e);
+          }
         }
 
         setExportSuccess(true);

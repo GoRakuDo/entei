@@ -19,21 +19,51 @@ describe('readAnkiConnectionPreferences', () => {
     expect(prefs.server).toBe(DEFAULT_ANKI_SERVER);
     expect(prefs.apiKey).toBe('');
     expect(prefs.forceSync).toBe(false);
+    expect(prefs.checkForDuplicates).toBe(true);
+    expect(prefs.checkAllModels).toBe(false);
+    expect(prefs.duplicateScope).toBe('collection');
+    expect(prefs.duplicateBehavior).toBe('allow');
+    expect(prefs.suspendNewCards).toBe(false);
+    expect(prefs.openNoteViewer).toBe('note-editor');
+    expect(typeof prefs.cardTemplates).toBe('string');
+    expect(prefs.cardTemplates.length).toBeGreaterThan(0);
+  });
+
+  it('falls back enum fields to defaults on an out-of-union stored value', () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...DEFAULT_ANKI_CONNECTION_PREFERENCES,
+        duplicateScope: 'galaxy',
+        duplicateBehavior: 'detonate',
+        openNoteViewer: 'telescope',
+      }),
+    );
+    const prefs = readAnkiConnectionPreferences();
+    expect(prefs.duplicateScope).toBe('collection');
+    expect(prefs.duplicateBehavior).toBe('allow');
+    expect(prefs.openNoteViewer).toBe('note-editor');
+    expect(prefs.checkForDuplicates).toBe(true);
   });
 
   it('reads valid stored preferences', () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
+        ...DEFAULT_ANKI_CONNECTION_PREFERENCES,
         server: 'http://localhost:9999',
         apiKey: 'secret',
         forceSync: true,
+        duplicateScope: 'deck-root',
+        suspendNewCards: true,
       }),
     );
     const prefs = readAnkiConnectionPreferences();
     expect(prefs.server).toBe('http://localhost:9999');
     expect(prefs.apiKey).toBe('secret');
     expect(prefs.forceSync).toBe(true);
+    expect(prefs.duplicateScope).toBe('deck-root');
+    expect(prefs.suspendNewCards).toBe(true);
   });
 
   it('returns defaults for corrupted JSON', () => {
@@ -76,9 +106,12 @@ describe('writeAnkiConnectionPreferences', () => {
 
   it('persists preferences to localStorage under the settings key', () => {
     writeAnkiConnectionPreferences({
+      ...DEFAULT_ANKI_CONNECTION_PREFERENCES,
       server: 'http://127.0.0.1:8765',
       apiKey: 'k',
       forceSync: true,
+      suspendNewCards: true,
+      duplicateBehavior: 'prevent',
     });
     const raw = localStorage.getItem(STORAGE_KEY);
     expect(raw).not.toBeNull();
@@ -86,6 +119,8 @@ describe('writeAnkiConnectionPreferences', () => {
     expect(data.server).toBe('http://127.0.0.1:8765');
     expect(data.apiKey).toBe('k');
     expect(data.forceSync).toBe(true);
+    expect(data.suspendNewCards).toBe(true);
+    expect(data.duplicateBehavior).toBe('prevent');
   });
 
   it('write payload contains only the expected keys', () => {
@@ -94,7 +129,18 @@ describe('writeAnkiConnectionPreferences', () => {
       apiKey: 'k',
     });
     const keys = Object.keys(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).sort();
-    expect(keys).toEqual(['apiKey', 'forceSync', 'server']);
+    expect(keys).toEqual([
+      'apiKey',
+      'cardTemplates',
+      'checkAllModels',
+      'checkForDuplicates',
+      'duplicateBehavior',
+      'duplicateScope',
+      'forceSync',
+      'openNoteViewer',
+      'server',
+      'suspendNewCards',
+    ]);
   });
 
   it('does not throw when localStorage.setItem throws', () => {
@@ -121,6 +167,16 @@ describe('updateAnkiConnectionPreferences', () => {
     expect(prefs.apiKey).toBe('a');
     expect(prefs.forceSync).toBe(true);
     // untouched field keeps its default
+  });
+
+  it('merges Card Management fields without dropping prior ones', () => {
+    updateAnkiConnectionPreferences({ suspendNewCards: true });
+    updateAnkiConnectionPreferences({ duplicateScope: 'deck' });
+    const prefs = readAnkiConnectionPreferences();
+    expect(prefs.suspendNewCards).toBe(true);
+    expect(prefs.duplicateScope).toBe('deck');
+    expect(prefs.duplicateBehavior).toBe('allow'); // untouched keeps default
+    expect(prefs.checkForDuplicates).toBe(true); // untouched keeps default
   });
 
 });

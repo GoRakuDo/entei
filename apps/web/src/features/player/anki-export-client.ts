@@ -9,7 +9,7 @@
  * instance lifetime. The caller (PlayerApp) owns the key in React memory.
  *
  * Actions: canAddNotes, addNote, storeMediaFile, findNotes, notesInfo,
- *          updateNoteFields, addTags, cardsInfo, findCards, apiReflect
+ *          updateNoteFields, addTags, cardsInfo, findCards, suspend, apiReflect
  *
  * AnkiDroid handling:
  *   - detectAnkiDroidMode() probes via apiReflect (PC supports,
@@ -35,6 +35,7 @@ type WriteAction =
   | 'addTags'
   | 'cardsInfo'
   | 'findCards'
+  | 'suspend'
   | 'apiReflect';
 
 interface WriteRequest {
@@ -329,6 +330,14 @@ export class AnkiExportClient {
     signal?: AbortSignal,
   ): Promise<FindCardsResult> {
     return this.request<FindCardsResult>('findCards', { query }, signal);
+  }
+
+  /** Suspend a set of card IDs (true on success). */
+  async suspend(
+    cards: number[],
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    return this.request<boolean>('suspend', { cards }, signal);
   }
 
   /**
