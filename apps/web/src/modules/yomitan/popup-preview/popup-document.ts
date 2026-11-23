@@ -550,14 +550,14 @@ const FRAME_BRIDGE_SCRIPT = `
         }
         var track = pickTrack(key, tracks, preferred);
         if (track === null) {
-            button.title = PLAY_AUDIO_TITLE + '\nCould not find audio';
+            button.title = PLAY_AUDIO_TITLE + '\\nCould not find audio';
             return;
         }
         var source = (AUDIO_CONFIG.sources || [])[track.sourceIndex];
         var expanded = source !== undefined && tracks[track.sourceIndex] !== undefined && tracks[track.sourceIndex].length > 1;
         playUrl(track.url);
         resolvedPrimary[key] = { sourceIndex: track.sourceIndex, subIndex: track.subIndex };
-        button.title = PLAY_AUDIO_TITLE + '\nFrom ' + (source !== undefined ? trackLabel(source, track, expanded) : 'audio');
+        button.title = PLAY_AUDIO_TITLE + '\\nFrom ' + (source !== undefined ? trackLabel(source, track, expanded) : 'audio');
     }
 
     function closeAudioMenu() {
@@ -692,6 +692,43 @@ const FRAME_BRIDGE_SCRIPT = `
         }
     }
 
+    /* ----------------------------------------------------------------
+       Anki duplicate markers.
+
+       The host checks each headword against the user's Anki collection and
+       pushes one status per card here. A card that DOES have a duplicate gets
+       Yomitan's own view-note glyph in its (otherwise empty)
+       note-actions-container — the same slot upstream fills when its Anki
+       integration is on. A card with no duplicate stays clean.
+       -------------------------------------------------------------- */
+    function mountDuplicateIcon(index, hasDuplicate) {
+        if (!hasDuplicate) { return; }
+        var entry = document.querySelector('.entry[data-index="' + index + '"]');
+        if (entry === null) { return; }
+        var actions = entry.querySelector('.note-actions-container');
+        if (actions === null) { return; }
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'action-button entei-duplicate-marker';
+        button.title = 'Note already exists in Anki';
+        var icon = document.createElement('span');
+        icon.className = 'action-icon icon color-icon';
+        icon.setAttribute('data-icon', 'view-note');
+        button.appendChild(icon);
+        actions.replaceChildren(button);
+    }
+
+    function onDuplicateStatus(data) {
+        var statuses = data.statuses;
+        if (!Array.isArray(statuses)) { return; }
+        for (var i = 0; i < statuses.length; ++i) {
+            var status = statuses[i];
+            if (status === null || typeof status !== 'object') { continue; }
+            if (typeof status.index !== 'number' || !Number.isFinite(status.index)) { continue; }
+            mountDuplicateIcon(status.index, status.hasDuplicate === true);
+        }
+    }
+
     function onAudioMenuItemClick(event) {
         var item = event.currentTarget;
         if (activeAudioMenu === null || item.disabled) { return; }
@@ -777,14 +814,15 @@ const FRAME_BRIDGE_SCRIPT = `
         }
     });
 
-    /* The host's answer to a resolve-audio-tracks request arrives here. The frame
-       is sandboxed, so it cannot fetch a custom-json payload itself — the host
-       (which reaches the native plugin) resolves and posts the tracks back. */
+    /* The host's answers arrive here. The frame is sandboxed, so everything the
+       host resolves on its behalf (audio tracks, Anki duplicate status) crosses
+       this boundary. */
     window.addEventListener('message', function (event) {
         var data = event.data;
         if (data === null || typeof data !== 'object') { return; }
-        if (data.channel !== CHANNEL || data.type !== 'audio-tracks') { return; }
-        onAudioTracks(data);
+        if (data.channel !== CHANNEL) { return; }
+        if (data.type === 'audio-tracks') { onAudioTracks(data); return; }
+        if (data.type === 'duplicate-status') { onDuplicateStatus(data); return; }
     }, false);
 
     bindAudioButtons();

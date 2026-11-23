@@ -841,10 +841,9 @@ describe('Stage 1A forbidden actions', () => {
     expect('storeMediaFile' in client).toBe(false);
   });
 
-  it('does not expose findNotes on AnkiConnectClient', () => {
-    const client = new AnkiConnectClient();
-    expect('findNotes' in client).toBe(false);
-  });
+  // findNotes is a READ action and is intentionally exposed (used by the Anki
+  // duplicate checker on the Yomitan search page / popup); it is covered by
+  // tests/anki-duplicate-status.test.ts, so it is not in this forbidden list.
 
   it('does not expose notesInfo on AnkiConnectClient', () => {
     const client = new AnkiConnectClient();

@@ -111,6 +111,7 @@ import {
   type SearchOutcome,
 } from '@/modules/yomitan/search/search-query';
 import { useClipboardMonitor } from '@/modules/yomitan/search/use-clipboard-monitor';
+import { checkTermsForDuplicates } from '@/modules/yomitan/search/anki-duplicate-status';
 import {
   toAudioSourceInfos,
   type AudioSourceInfo,
@@ -119,6 +120,7 @@ import {
   YomitanAudioController,
   mountAudioMenuTemplates,
 } from '@/modules/yomitan/search/audio-controller';
+import { summarizeTermEntry } from '@/modules/yomitan/yomitan-engine';
 
 /**
  * This page's own English strings.
@@ -274,6 +276,38 @@ function kanjiLinkCharacter(link: Element): string {
   // A ruby base with the character wrapped in its own element: fall back to the
   // first character, because `<rt>` holds the READING and is never the answer.
   return [...(link.textContent ?? '')].find((character) => character.trim() !== '') ?? '';
+}
+
+/**
+ * Mount the "this word is already in Anki" marker on one card.
+ *
+ * Only a card that DOES have a duplicate gets a marker: Yomitan's own
+ * `view-note` glyph in the card's (otherwise empty) `note-actions-container`, the
+ * same slot upstream fills when its Anki integration is on. A card with no
+ * duplicate stays clean — a marker on every card would be noise. The button is
+ * inert here (it is a status indicator, not a wired note-viewer), so it is a
+ * `type="button"` that does nothing but carry the glyph and a tooltip.
+ */
+function mountDuplicateIcon(
+  container: Element,
+  index: number,
+  hasDuplicate: boolean,
+): void {
+  if (!hasDuplicate) return;
+  const entry = container.querySelector(`.entry[data-index="${index}"]`);
+  if (entry === null) return;
+  const actions = entry.querySelector('.note-actions-container');
+  if (actions === null) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'action-button entei-duplicate-marker';
+  button.title = 'Note already exists in Anki';
+  button.setAttribute('aria-label', button.title);
+  const icon = document.createElement('span');
+  icon.className = 'action-icon icon color-icon';
+  icon.setAttribute('data-icon', 'view-note');
+  button.append(icon);
+  actions.replaceChildren(button);
 }
 
 /** One search page island. */
@@ -492,6 +526,49 @@ export function YomitanSearchApp() {
       audioControllerRef.current = controller;
     }
   }, [entries, assetsReady, options.audioSources, options.audioVolume]);
+
+  /* ------------------------------------------------------------------------
+   * Anki duplicate markers — after the cards are on screen.
+   * -----------------------------------------------------------------------
+   * Runs OFF the commit path on purpose: the duplicate check is a network round
+   * trip to AnkiConnect, so it must never run inside the drawing effect above (a
+   * throw there would unmount the island). The cards are already readable when
+   * the markers land, and `checkTermsForDuplicates` is fail-soft — Anki being
+   * closed just means no markers, never a broken page.
+   *
+   * Term entries are numbered 0..n-1 in the order drawn (see `search-display`),
+   * so `data-index` maps straight onto the term-entry array. Kanji cards carry no
+   * headword worth marking and are skipped. */
+  useEffect(() => {
+    const container = entriesRef.current;
+    if (container === null || !assetsReady) return;
+    const termEntries = entries.entries;
+    if (termEntries.length === 0) return;
+    const indexToTerm = new Map<number, string>();
+    termEntries.forEach((entry, index) => {
+      const summary = summarizeTermEntry(entry);
+      if (summary !== null && summary.term.trim() !== '') {
+        indexToTerm.set(index, summary.term);
+      }
+    });
+    if (indexToTerm.size === 0) return;
+    const controller = new AbortController();
+    let cancelled = false;
+    void checkTermsForDuplicates([...indexToTerm.values()], controller.signal)
+      .then((statuses) => {
+        if (cancelled) return;
+        for (const [index, term] of indexToTerm) {
+          mountDuplicateIcon(container, index, statuses.get(term) === true);
+        }
+      })
+      .catch(() => {
+        /* fail-soft: a rejected check leaves the cards as they are. */
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [entries, assetsReady]);
 
   /* Unbind on unmount so the document-level Alt+P / outside-press listeners and
      any playing audio do not outlive the page. */

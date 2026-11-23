@@ -28,6 +28,8 @@ export interface DuplicateCheckOptions {
   duplicateScope: DuplicateScope;
   /** Name of the note's first field (the searchable key), e.g. 'expression'. */
   firstFieldName: string;
+  /** Search the bare term across all models instead of the first field only. */
+  checkAllModels?: boolean;
   /** Target deck the new card would be added to. */
   deckName: string;
 }
@@ -74,7 +76,9 @@ export function buildDuplicateQuery(
   term: string,
   options: DuplicateCheckOptions,
 ): string {
-  const fieldQuery = `"${options.firstFieldName}:${escapeAnkiTerm(term)}"`;
+  const fieldQuery = options.checkAllModels
+    ? `"${escapeAnkiTerm(term)}"`
+    : `"${options.firstFieldName}:${escapeAnkiTerm(term)}"`;
   switch (options.duplicateScope) {
     case 'collection':
       return fieldQuery;

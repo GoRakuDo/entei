@@ -486,6 +486,25 @@ export interface Dictionary {
     forceSyncLabel: string;
     forceSyncDescription: string;
   };
+  /** /settings/ Anki page — “Card Managements” card (duplicate checks + templates). */
+  ankiCardManagements: {
+    /** Card heading title (Lucide Layers). */
+    title: string;
+    checkDuplicatesLabel: string;
+    checkDuplicatesDescription: string;
+    checkAllModelsLabel: string;
+    checkAllModelsDescription: string;
+    duplicateScopeLabel: string;
+    duplicateScopeDescription: string;
+    duplicateBehaviorLabel: string;
+    suspendNewCardsLabel: string;
+    suspendNewCardsDescription: string;
+    openNoteViewerLabel: string;
+    openNoteViewerDescription: string;
+    templatesHeading: string;
+    templatesDescription: string;
+    resetTemplatesLabel: string;
+  };
   language: {
     selectLabel: string;
     /** Label for the desktop Language Combobox trigger */

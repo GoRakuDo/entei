@@ -122,6 +122,17 @@ describe('checkForDuplicateNotes', () => {
     expect(query).toBe('"word:走る"');
   });
 
+  it('searches the bare term without a field prefix when checkAllModels is on', async () => {
+    const { client, findNotes } = makeClient([7]);
+    const result = await checkForDuplicateNotes(
+      client,
+      '猫',
+      makeOptions({ checkAllModels: true }),
+    );
+    expect(findNotes).toHaveBeenCalledWith('"猫"', undefined);
+    expect(result.noteIds).toEqual([7]);
+  });
+
   it('forwards an abort signal to findNotes', async () => {
     const findNotes = vi.fn().mockResolvedValue([]);
     const client: DuplicateCheckClient = { findNotes };

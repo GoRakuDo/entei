@@ -424,6 +424,29 @@ export const id: Dictionary = {
     forceSyncDescription:
       'Dapat bermasalah saat koneksi lambat atau berkuota.',
   },
+  ankiCardManagements: {
+    title: 'Manajemen Kartu',
+    checkDuplicatesLabel: 'Periksa duplikasi kartu',
+    checkDuplicatesDescription:
+      'Pemeriksaan duplikasi hanya dilakukan untuk catatan yang dibuat dengan model yang sama.',
+    checkAllModelsLabel: 'Periksa duplikasi di semua model',
+    checkAllModelsDescription:
+      'Mengaktifkan opsi ini akan memeriksa duplikasi di semua jenis model.',
+    duplicateScopeLabel: 'Lingkup kartu duplikat',
+    duplicateScopeDescription:
+      'Secara bawaan, pemeriksaan ini mencakup kartu di semua dek dalam koleksi, tetapi batasan ini dapat dilonggarkan dengan opsi Deck atau Deck root.',
+    duplicateBehaviorLabel: 'Saat duplikat terdeteksi',
+    suspendNewCardsLabel: 'Tangguhkan kartu baru',
+    suspendNewCardsDescription:
+      'Kartu baru akan ditangguhkan saat sebuah catatan ditambahkan.',
+    openNoteViewerLabel: 'Buka jendela penampil catatan',
+    openNoteViewerDescription:
+      'Mengklik tombol Lihat catatan yang ditambahkan akan menampilkan jendela Anki ini.',
+    templatesHeading: 'Templat Kartu Anki',
+    templatesDescription:
+      'Kolom kartu Anki diformat menggunakan mesin perenderan templat Handlebars.js. Pengguna tingkat lanjut dapat memodifikasi templat ini untuk kendali penuh atas informasi yang disertakan dalam kartu Anki.',
+    resetTemplatesLabel: 'Reset Templat',
+  },
   language: {
     selectLabel: 'Bahasa',
     comboboxLabel: 'Pilih bahasa',

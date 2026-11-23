@@ -62,6 +62,7 @@ import {
   parsePopupFrameRequest,
   sourceIsPopupFrame,
   resolveAndPostAudioTracks,
+  POPUP_FRAME_CHANNEL,
 } from '@/modules/yomitan/popup-preview';
 import {
   readOptionPath,
@@ -69,7 +70,8 @@ import {
   activeProfileOptions,
 } from '@/modules/yomitan/yomitan-preferences';
 import { toAudioSourceInfos } from '@/modules/yomitan/audio/audio-sources';
-import { lookupKanji } from '@/modules/yomitan/yomitan-engine';
+import { lookupKanji, summarizeTermEntry } from '@/modules/yomitan/yomitan-engine';
+import { checkTermsForDuplicates } from '@/modules/yomitan/search/anki-duplicate-status';
 import { listInstalledDictionariesCached } from '@/modules/yomitan/dictionary-store';
 import {
   YOMITAN_SCAN_RESULT_EVENT,
@@ -492,6 +494,64 @@ export function YomitanPopup() {
     window.addEventListener('resize', place);
     return () => window.removeEventListener('resize', place);
   }, [open]);
+
+  /* ---------------------------------------------------------------------
+   * Anki duplicate markers — pushed to the frame once the card is up.
+   * -------------------------------------------------------------------
+   * The card lives in a SANDBOXED iframe this component cannot read, so — like
+   * the audio tracks — the duplicate status crosses the boundary as a
+   * postMessage. The frame's own bridge script mounts the per-card icon on
+   * receipt. The host resolves the headwords from the CURRENT history entry's
+   * cached term entries (`data-index` maps onto the term array, matching how
+   * `renderPopupCard` numbered them) and pushes one status per card.
+   *
+   * Fail-soft and fire-and-forget: Anki being closed just means no markers. The
+   * await on the network round trip also gives a freshly-set `srcDoc` the moment
+   * it needs to finish parsing its bridge listener before the message lands. */
+  useEffect(() => {
+    if (open === null || history === null) return;
+    const frame = iframeRef.current;
+    if (frame === null) return;
+    const item = history.items[history.index];
+    if (item === undefined) return;
+    const cached = entriesRef.current.get(entryKey(item.mode, item.query));
+    if (cached === undefined) return;
+    const indexToTerm = new Map<number, string>();
+    cached.entries.forEach((entry, index) => {
+      const summary = summarizeTermEntry(entry);
+      if (summary !== null && summary.term.trim() !== '') {
+        indexToTerm.set(index, summary.term);
+      }
+    });
+    if (indexToTerm.size === 0) return;
+    const controller = new AbortController();
+    let cancelled = false;
+    void checkTermsForDuplicates([...indexToTerm.values()], controller.signal)
+      .then((statuses) => {
+        if (cancelled) return;
+        const target = frame.contentWindow;
+        if (target === null) return;
+        const statusesPayload = [...indexToTerm.entries()].map(([index, term]) => ({
+          index,
+          hasDuplicate: statuses.get(term) === true,
+        }));
+        target.postMessage(
+          {
+            channel: POPUP_FRAME_CHANNEL,
+            type: 'duplicate-status',
+            statuses: statusesPayload,
+          },
+          '*',
+        );
+      })
+      .catch(() => {
+        /* fail-soft: a rejected check leaves the card without markers. */
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [open, history]);
 
   /* ---------------------------------------------------------------------
    * Close: Escape, a press outside the frame, or another scan replacing it.

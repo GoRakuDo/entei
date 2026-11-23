@@ -426,6 +426,28 @@ export const en: Dictionary = {
     forceSyncLabel: 'Force Anki sync on adding card',
     forceSyncDescription: 'May cause issues when slow or metered connections.',
   },
+  ankiCardManagements: {
+    title: 'Card Managements',
+    checkDuplicatesLabel: 'Check for card duplicates',
+    checkDuplicatesDescription:
+      'Duplicate checks are only performed for notes created with the same model.',
+    checkAllModelsLabel: 'Check for duplicates across all models',
+    checkAllModelsDescription:
+      'Enabling this option will check for duplicates across all model types.',
+    duplicateScopeLabel: 'Duplicate card scope',
+    duplicateScopeDescription:
+      'By default, this check will include cards across all decks in a collection, but this constraint can be relaxed by using either the Deck or Deck root option.',
+    duplicateBehaviorLabel: 'When a duplicate is detected',
+    suspendNewCardsLabel: 'Suspend new cards',
+    suspendNewCardsDescription: 'New cards will be suspended when a note is added.',
+    openNoteViewerLabel: 'Open note viewer window',
+    openNoteViewerDescription:
+      'Clicking the View added note button shows this Anki window.',
+    templatesHeading: 'Anki Card Templates',
+    templatesDescription:
+      'Anki card fields are formatted using the Handlebars.js template rendering engine. Advanced users can modify these templates for full control over what information is included in Anki cards.',
+    resetTemplatesLabel: 'Reset Templates',
+  },
   language: {
     selectLabel: 'Language',
     comboboxLabel: 'Select language',

@@ -30,6 +30,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnkiConnectionCard } from '@/components/settings/AnkiConnectionCard';
+import { AnkiCardManagementsCard } from '@/components/settings/AnkiCardManagementsCard';
 import {
   ArrowLeft,
   Blocks,
@@ -621,6 +622,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
         {selection.group === 'anki' && (
           <div className="entei-settings-section-stack">
             <AnkiConnectionCard dict={dict.ankiConnection} notEditable={dict.yomitanSettings.notEditable} />
+            <AnkiCardManagementsCard dict={dict.ankiCardManagements} />
           </div>
         )}
 

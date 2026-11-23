@@ -1789,3 +1789,118 @@ body[data-page='settings'] .entei-main {
     color: HighlightText;
   }
 }
+
+/* --------------------------------------------------------------------------
+ * Anki Card Managements card — divider + Handlebars template CodeBlock editor.
+ * ----------------------------------------------------------------------- */
+
+/* Divider between the behavior rows and the template editor. */
+.entei-settings-divider {
+  border: none;
+  border-top: 1px solid oklch(100% 0 0deg / 0.08);
+  margin: var(--entei-space-4) 0;
+}
+
+/* Templates sub-section: heading, description, editor, reset footer. */
+.entei-anki-card-templates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+.entei-anki-card-templates-heading {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--entei-text-primary);
+}
+
+.entei-anki-card-templates-description {
+  margin: 0;
+  color: var(--entei-text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+/* CodeBlock editor: line-number gutter + editable textarea (dark surface,
+   rounded, 1px border, monospace). The gutter is a clipped column that syncs
+   its scrollTop to the textarea's on scroll (see the component). */
+.entei-anki-code-editor {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-md);
+  overflow: hidden;
+}
+
+.entei-anki-code-gutter {
+  flex: none;
+  min-width: 3rem;
+  max-height: 18rem;
+  padding: var(--entei-space-12) var(--entei-space-8);
+  overflow: hidden;
+  background-color: oklch(100% 0 0deg / 0.03);
+  border-right: 1px solid oklch(100% 0 0deg / 0.08);
+  font-family: ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas',
+    var(--entei-font-system), monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  text-align: right;
+  color: var(--entei-text-secondary);
+  user-select: none;
+}
+
+.entei-anki-code-line-number {
+  display: block;
+}
+
+.entei-anki-code-textarea {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 18rem;
+  max-height: 18rem;
+  padding: var(--entei-space-12);
+  border: none;
+  background-color: transparent;
+  color: var(--entei-text-primary);
+  font-family: ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas',
+    var(--entei-font-system), monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+  tab-size: 2;
+}
+
+.entei-anki-code-textarea:focus-visible {
+  outline: none;
+}
+
+.entei-anki-card-templates-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.entei-anki-card-templates-reset {
+  padding: var(--entei-space-8) var(--entei-space-16);
+  border: 1px solid oklch(100% 0 0deg / 0.12);
+  border-radius: var(--entei-radius-md);
+  background-color: transparent;
+  color: var(--entei-text-primary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.entei-anki-card-templates-reset:hover {
+  background-color: var(--entei-btn-color);
+  border-color: oklch(100% 0 0deg / 0.2);
+}
+
+.entei-anki-card-templates-reset:focus-visible {
+  outline: 2px solid var(--entei-text-secondary);
+  outline-offset: 2px;
+}

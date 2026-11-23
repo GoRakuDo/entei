@@ -16,13 +16,14 @@
 
 import { ankiRequestDirect, isTauri, raceWithAbort } from '@/features/player/tauri-bridge';
 
-/** Well-known AnkiConnect actions used in Stage 1A. */
+/** Well-known AnkiConnect actions used in Stage 1A (+ findNotes for duplicate checks). */
 type ReadAction =
   | 'version'
   | 'requestPermission'
   | 'deckNames'
   | 'modelNames'
-  | 'modelFieldNames';
+  | 'modelFieldNames'
+  | 'findNotes';
 
 /** Request shape sent to AnkiConnect. */
 interface AnkiRequest {
@@ -258,6 +259,18 @@ export class AnkiConnectClient {
     signal?: AbortSignal,
   ): Promise<string[]> {
     return this.request<string[]>('modelFieldNames', { modelName }, signal);
+  }
+
+  /**
+   * Search the collection and return the matching note IDs.
+   *
+   * AnkiConnect's empty-result contract: a search that matches nothing yields an
+   * empty ARRAY, never null, so the result is normalized here too (the duplicate
+   * checker depends on always reading an array).
+   */
+  async findNotes(query: string, signal?: AbortSignal): Promise<number[]> {
+    const result = await this.request<number[]>('findNotes', { query }, signal);
+    return Array.isArray(result) ? result : [];
   }
 }
 

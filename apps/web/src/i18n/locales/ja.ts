@@ -422,6 +422,29 @@ export const ja: Dictionary = {
     forceSyncDescription:
       '低速または従量制の接続では問題が起きることがあります。',
   },
+  ankiCardManagements: {
+    title: 'カード管理',
+    checkDuplicatesLabel: 'カードの重複をチェック',
+    checkDuplicatesDescription:
+      '重複チェックは同じモデルで作成されたノートにのみ実行されます。',
+    checkAllModelsLabel: 'すべてのモデルで重複をチェック',
+    checkAllModelsDescription:
+      'このオプションを有効にすると、すべてのモデルタイプに対して重複がチェックされます。',
+    duplicateScopeLabel: '重複カードのスコープ',
+    duplicateScopeDescription:
+      'デフォルトでは、このチェックにはコレクション内のすべてのデッキのカードが含まれますが、Deck または Deck root オプションを使用するとこの制約を緩和できます。',
+    duplicateBehaviorLabel: '重複が検出されたとき',
+    suspendNewCardsLabel: '新しいカードを一時停止',
+    suspendNewCardsDescription:
+      'ノートが追加されると、新しいカードは一時停止されます。',
+    openNoteViewerLabel: 'ノートビューアウィンドウを開く',
+    openNoteViewerDescription:
+      '「追加されたノートを表示」ボタンをクリックすると、この Anki ウィンドウが表示されます。',
+    templatesHeading: 'Anki カードテンプレート',
+    templatesDescription:
+      'Anki カードのフィールドは Handlebars.js テンプレートレンダリングエンジンを使用して整形されます。上級ユーザーはこれらのテンプレートを変更して、Anki カードに含まれる情報を完全に制御できます。',
+    resetTemplatesLabel: 'テンプレートをリセット',
+  },
   language: {
     selectLabel: '言語',
     comboboxLabel: '言語を選択',
