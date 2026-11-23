@@ -364,13 +364,6 @@ export function AnkiFieldProfilesCard({
                           className="entei-module-select"
                           aria-label={dict.buttonFieldLabel}
                         >
-                          <img
-                            src={ICON_SRC[format.icon]}
-                            alt=""
-                            width={16}
-                            height={16}
-                            className="entei-anki-card-format-icon"
-                          />
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
