@@ -35,6 +35,10 @@ export interface AnkiConnectionPreferences {
   openNoteViewer: OpenNoteViewer;
   /** Handlebars card templates (stored only for now; see DEFAULT_CARD_TEMPLATES). */
   cardTemplates: string;
+  /** Screenshot image format captured for created cards. */
+  screenshotFormat: ScreenshotFormat;
+  /** Anki card deck/format profiles (deck + model + field markers per profile). */
+  cardFormats: AnkiCardFormat[];
 }
 
 /** Scope the duplicate search is run against. */
@@ -46,6 +50,34 @@ export type DuplicateBehavior = 'allow' | 'prevent' | 'overwrite';
 /** Window opened from the View added note button. */
 export type OpenNoteViewer = 'note-editor' | 'browser';
 
+/** Image format of the screenshot attached to a created card. */
+export type ScreenshotFormat = 'png' | 'jpeg';
+
+/** Icon shown for a card-format profile button (Yomitan-compatible set). */
+export type AnkiCardFormatIcon =
+  | 'big-circle'
+  | 'small-circle'
+  | 'big-square'
+  | 'big-diamond';
+
+/** A single Anki card format profile: which deck/model/fields a card uses. */
+export interface AnkiCardFormat {
+  /** Unique profile id (seeded ids 'default' / 'denchou', otherwise randomUUID). */
+  id: string;
+  /** Human-readable profile name shown in the accordion header. */
+  name: string;
+  /** Card kind ('kanji' reserved for kanji note types; term is the default). */
+  type: 'term' | 'kanji';
+  /** Button icon for this profile. */
+  icon: AnkiCardFormatIcon;
+  /** Target Anki deck name (free text; not required to exist yet). */
+  deck: string;
+  /** Target Anki note type (model) name. */
+  model: string;
+  /** fieldName -> marker/value (e.g. { Front: '{expression}' }). */
+  fields: Record<string, string>;
+}
+
 import { DEFAULT_CARD_TEMPLATES } from './default-card-templates';
 
 export { DEFAULT_CARD_TEMPLATES };
@@ -54,6 +86,41 @@ export const ANKI_CONNECTION_PREFS_KEY = 'entei.player.anki-connection.v1';
 
 /** AnkiConnect default endpoint (same default AnkiConnect ships with). */
 export const DEFAULT_ANKI_SERVER = 'http://127.0.0.1:8765';
+
+const SCREENSHOT_FORMATS: readonly ScreenshotFormat[] = ['png', 'jpeg'];
+const CARD_FORMAT_ICONS: readonly AnkiCardFormatIcon[] = [
+  'big-circle',
+  'small-circle',
+  'big-square',
+  'big-diamond',
+];
+
+/** Seed the two default card-format profiles (Default + DenChou). */
+export const DEFAULT_CARD_FORMATS: AnkiCardFormat[] = [
+  {
+    id: 'default',
+    name: 'Default',
+    type: 'term',
+    icon: 'big-circle',
+    deck: 'Default',
+    model: 'Basic',
+    fields: { Front: '{expression}', Back: '{glossary}' },
+  },
+  {
+    id: 'denchou',
+    name: 'DenChou',
+    type: 'term',
+    icon: 'small-circle',
+    deck: 'Default',
+    model: 'DenChou',
+    fields: {
+      word: '{expression}',
+      reading: '{reading}',
+      sentence: '{sentence}',
+      sentenceFurigana: '{sentence-furigana}',
+    },
+  },
+];
 
 export const DEFAULT_ANKI_CONNECTION_PREFERENCES: AnkiConnectionPreferences = {
   server: DEFAULT_ANKI_SERVER,
@@ -66,6 +133,8 @@ export const DEFAULT_ANKI_CONNECTION_PREFERENCES: AnkiConnectionPreferences = {
   suspendNewCards: false,
   openNoteViewer: 'note-editor',
   cardTemplates: DEFAULT_CARD_TEMPLATES,
+  screenshotFormat: 'png',
+  cardFormats: DEFAULT_CARD_FORMATS,
 };
 
 const DUPLICATE_SCOPES: readonly DuplicateScope[] = [
@@ -93,7 +162,9 @@ function enumOr<T extends string>(
   return allowed.includes(value as T) ? (value as T) : fallback;
 }
 
-/** Defensive validation: a hand-edited / corrupted row falls back to defaults. */
+/** Defensive validation: a hand-edited / corrupted row falls back to defaults.
+ *  screenshotFormat / cardFormats are intentionally NOT required here so a row
+ *  persisted before they existed still validates and gains them via defaults. */
 function isAnkiConnectionPreferences(
   value: unknown,
 ): value is AnkiConnectionPreferences {
@@ -111,6 +182,40 @@ function isAnkiConnectionPreferences(
     OPEN_NOTE_VIEWERS.includes(v.openNoteViewer as OpenNoteViewer) &&
     typeof v.cardTemplates === 'string'
   );
+}
+
+/**
+ * Validate a parsed cardFormats array. Each entry must carry an id/name and a
+ * fields object; icon/type fall back to their defaults per-entry so one bad
+ * profile cannot poison the whole list (matches enumOr's per-field policy).
+ */
+function sanitizeCardFormats(value: unknown): AnkiCardFormat[] {
+  if (!Array.isArray(value)) return DEFAULT_CARD_FORMATS.map((f) => ({ ...f }));
+  const formats: AnkiCardFormat[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const e = entry as Record<string, unknown>;
+    if (typeof e.id !== 'string' || typeof e.name !== 'string') continue;
+    const fields: Record<string, string> = {};
+    if (typeof e.fields === 'object' && e.fields !== null) {
+      for (const [key, val] of Object.entries(e.fields as Record<string, unknown>)) {
+        if (typeof val === 'string') fields[key] = val;
+      }
+    }
+    formats.push({
+      id: e.id,
+      name: e.name,
+      type: e.type === 'kanji' ? 'kanji' : 'term',
+      icon: enumOr(e.icon, CARD_FORMAT_ICONS, 'big-circle'),
+      deck: typeof e.deck === 'string' ? e.deck : '',
+      model: typeof e.model === 'string' ? e.model : '',
+      fields,
+    });
+  }
+  // Keep at least one profile — an empty list would leave the card un-usable.
+  return formats.length > 0
+    ? formats
+    : DEFAULT_CARD_FORMATS.map((f) => ({ ...f, fields: { ...f.fields } }));
 }
 
 /** SSR-safe: no window/localStorage during static prerender. */
@@ -151,6 +256,15 @@ export function readAnkiConnectionPreferences(): AnkiConnectionPreferences {
         OPEN_NOTE_VIEWERS,
         DEFAULT_ANKI_CONNECTION_PREFERENCES.openNoteViewer,
       ),
+      screenshotFormat: enumOr(
+        parsed.screenshotFormat,
+        SCREENSHOT_FORMATS,
+        DEFAULT_ANKI_CONNECTION_PREFERENCES.screenshotFormat,
+      ),
+      cardFormats:
+        parsed.cardFormats === undefined
+          ? DEFAULT_CARD_FORMATS.map((f) => ({ ...f, fields: { ...f.fields } }))
+          : sanitizeCardFormats(parsed.cardFormats),
     };
   } catch {
     return { ...DEFAULT_ANKI_CONNECTION_PREFERENCES }; // storage unavailable or corrupted

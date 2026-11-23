@@ -1873,3 +1873,121 @@ body[data-page='settings'] .entei-main {
 .entei-anki-card-templates-footer {
   width: 100%;
 }
+
+/* ==========================================================================
+   ANKI FIELD PROFILES & FORMATS CARD (/settings/ Anki page)
+   Deck-profile accordion: each profile is a bordered card with a toggle
+   header; the body holds Name/Button/Deck/NoteType rows, a divider, the
+   Field/Value mapping table, and a full-width Remove button.
+   ========================================================================== */
+.entei-anki-profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+  width: 100%;
+}
+
+.entei-anki-profile-card {
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-md);
+  background-color: var(--entei-surface);
+}
+
+.entei-anki-profile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--entei-space-8);
+  width: 100%;
+  padding: var(--entei-space-12) var(--entei-space-16);
+  border: none;
+  background: none;
+  color: var(--entei-text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.entei-anki-profile-name {
+  font-family: var(--entei-font-body);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--entei-text-primary);
+}
+
+.entei-anki-profile-header:focus-visible {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-anki-profile-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+  padding: 0 var(--entei-space-16) var(--entei-space-16);
+}
+
+.entei-anki-profile-icon-option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+}
+
+/* Field / Value mapping table inside an expanded profile. */
+.entei-anki-profile-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+.entei-anki-profile-fields-header {
+  display: grid;
+  grid-template-columns: 1fr 15rem;
+  align-items: center;
+  gap: var(--entei-space-16);
+  padding: 0 var(--entei-space-4);
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: var(--entei-text-muted);
+}
+
+.entei-anki-profile-fields-header span:last-child {
+  text-align: center;
+}
+
+.entei-anki-profile-fields-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+.entei-anki-profile-field-row {
+  display: grid;
+  grid-template-columns: 1fr 15rem;
+  align-items: center;
+  gap: var(--entei-space-16);
+  min-height: var(--entei-touch-min);
+}
+
+.entei-anki-profile-field-name {
+  font-family: var(--entei-font-body);
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  color: var(--entei-text-secondary);
+}
+
+.entei-anki-profile-field-value {
+  font-family: ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas',
+    var(--entei-font-system), monospace;
+  font-size: 0.8125rem;
+}
+
+/* Remove button sits at the bottom of the expanded profile body. */
+.entei-anki-profile-remove {
+  margin-top: var(--entei-space-4);
+  color: oklch(70% 0.19 25deg);
+}
+
+.entei-anki-profile-remove:hover {
+  color: oklch(78% 0.19 25deg);
+}

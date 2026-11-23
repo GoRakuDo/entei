@@ -505,6 +505,29 @@ export interface Dictionary {
     templatesDescription: string;
     resetTemplatesLabel: string;
   };
+  /** /settings/ Anki page — “Anki Field Profiles & Formats” card (deck profiles). */
+  ankiFieldProfiles: {
+    /** Card heading title (Lucide FileStack). */
+    title: string;
+    screenshotFormatLabel: string;
+    screenshotFormatDescription: string;
+    screenshotFormatPng: string;
+    screenshotFormatJpeg: string;
+    profilesLabel: string;
+    profilesDescription: string;
+    addProfileLabel: string;
+    nameFieldLabel: string;
+    buttonFieldLabel: string;
+    deckFieldLabel: string;
+    noteTypeFieldLabel: string;
+    fieldColumnHeader: string;
+    valueColumnHeader: string;
+    removeProfileLabel: string;
+    iconBigCircle: string;
+    iconSmallCircle: string;
+    iconBigSquare: string;
+    iconBigDiamond: string;
+  };
   language: {
     selectLabel: string;
     /** Label for the desktop Language Combobox trigger */

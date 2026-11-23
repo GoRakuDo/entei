@@ -98,6 +98,83 @@ describe('readAnkiConnectionPreferences', () => {
     );
     Storage.prototype.getItem = original;
   });
+
+  it('seeds the two default card-format profiles and png screenshots', () => {
+    const prefs = readAnkiConnectionPreferences();
+    expect(prefs.screenshotFormat).toBe('png');
+    expect(prefs.cardFormats.map((f) => f.id)).toEqual(['default', 'denchou']);
+    const defaultProfile = prefs.cardFormats[0];
+    expect(defaultProfile?.fields.Front).toBe('{expression}');
+    const denchouProfile = prefs.cardFormats[1];
+    expect(denchouProfile?.fields.sentenceFurigana).toBe(
+      '{sentence-furigana}',
+    );
+  });
+
+  it('falls back screenshotFormat to png on an out-of-union stored value', () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...DEFAULT_ANKI_CONNECTION_PREFERENCES,
+        screenshotFormat: 'webp',
+      }),
+    );
+    expect(readAnkiConnectionPreferences().screenshotFormat).toBe('png');
+  });
+
+  it('seeds default cardFormats when a pre-existing row lacks them', () => {
+    const { cardFormats: _omit, screenshotFormat: _omitToo, ...legacy } =
+      DEFAULT_ANKI_CONNECTION_PREFERENCES;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(legacy));
+    const prefs = readAnkiConnectionPreferences();
+    expect(prefs.screenshotFormat).toBe('png');
+    expect(prefs.cardFormats.map((f) => f.id)).toEqual(['default', 'denchou']);
+  });
+
+  it('keeps a valid stored cardFormats list and drops invalid entries', () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...DEFAULT_ANKI_CONNECTION_PREFERENCES,
+        cardFormats: [
+          {
+            id: 'custom',
+            name: 'Custom',
+            type: 'kanji',
+            icon: 'big-diamond',
+            deck: 'Mining',
+            model: 'Kanji',
+            fields: { Front: '{expression}' },
+            junk: 'ignored',
+          },
+          { name: 'no-id' },
+          'garbage',
+        ],
+      }),
+    );
+    const prefs = readAnkiConnectionPreferences();
+    expect(prefs.cardFormats.length).toBe(1);
+    const customEntry = prefs.cardFormats[0];
+    expect(customEntry).toBeDefined();
+    expect(customEntry!.id).toBe('custom');
+    expect(customEntry!.type).toBe('kanji');
+    expect(customEntry!.icon).toBe('big-diamond');
+    expect(customEntry!.fields.Front).toBe('{expression}');
+    expect('junk' in customEntry!).toBe(false);
+  });
+
+  it('falls back to default profiles when every stored entry is invalid', () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...DEFAULT_ANKI_CONNECTION_PREFERENCES,
+        cardFormats: [{ name: 'no-id' }, 'garbage'],
+      }),
+    );
+    expect(readAnkiConnectionPreferences().cardFormats.map((f) => f.id)).toEqual(
+      ['default', 'denchou'],
+    );
+  });
 });
 
 describe('writeAnkiConnectionPreferences', () => {
@@ -131,6 +208,7 @@ describe('writeAnkiConnectionPreferences', () => {
     const keys = Object.keys(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).sort();
     expect(keys).toEqual([
       'apiKey',
+      'cardFormats',
       'cardTemplates',
       'checkAllModels',
       'checkForDuplicates',
@@ -138,6 +216,7 @@ describe('writeAnkiConnectionPreferences', () => {
       'duplicateScope',
       'forceSync',
       'openNoteViewer',
+      'screenshotFormat',
       'server',
       'suspendNewCards',
     ]);
