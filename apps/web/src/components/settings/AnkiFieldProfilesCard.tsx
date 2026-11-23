@@ -54,6 +54,7 @@ import {
 } from '@/components/player/ui/select';
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/player/ui/popover';
@@ -606,25 +607,27 @@ function MarkerCombobox({
 }) {
   return (
     <Popover>
-      <div className="entei-anki-marker-combobox">
-        <input
-          type="text"
-          className="entei-anki-marker-combobox-input"
-          value={value}
-          placeholder={placeholder}
-          aria-label={ariaLabel}
-          onChange={(e) => onChange(e.target.value)}
-        />
-        <PopoverTrigger
-          type="button"
-          className="entei-anki-marker-combobox-chevron"
-          aria-label={`${ariaLabel} — marker list`}
-        >
-          <ChevronDown size={14} aria-hidden="true" />
-        </PopoverTrigger>
-      </div>
+      <PopoverAnchor asChild>
+        <div className="entei-anki-marker-combobox">
+          <input
+            type="text"
+            className="entei-anki-marker-combobox-input"
+            value={value}
+            placeholder={placeholder}
+            aria-label={ariaLabel}
+            onChange={(e) => onChange(e.target.value)}
+          />
+          <PopoverTrigger
+            type="button"
+            className="entei-anki-marker-combobox-chevron"
+            aria-label={`${ariaLabel} — marker list`}
+          >
+            <ChevronDown size={14} aria-hidden="true" />
+          </PopoverTrigger>
+        </div>
+      </PopoverAnchor>
       <PopoverContent
-        align="end"
+        align="start"
         sideOffset={4}
         className="entei-anki-marker-popover"
       >

@@ -2029,6 +2029,13 @@ body[data-page='settings'] .entei-main {
   font-size: 0.8125rem;
   padding: 0;
 }
+.entei-anki-marker-combobox-input:focus,
+.entei-anki-marker-combobox-input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
 .entei-anki-marker-combobox-input::placeholder {
   color: var(--entei-text-secondary);
 }
@@ -2059,7 +2066,10 @@ body[data-page='settings'] .entei-main {
 
 /* Marker selection popover (Yomitan-style dropdown). */
 .entei-anki-marker-popover {
-  min-width: 15rem;
+  width: 15rem !important;
+  min-width: 15rem !important;
+  max-width: 15rem !important;
+  box-sizing: border-box;
   padding: 0;
   border: 1px solid oklch(100% 0 0deg / 0.08);
   border-radius: var(--entei-radius-md);
@@ -2076,12 +2086,16 @@ body[data-page='settings'] .entei-main {
 .entei-anki-marker-item {
   display: block;
   width: 100%;
+  box-sizing: border-box;
   padding: var(--entei-space-8) var(--entei-space-16);
   border: none;
   background: transparent;
   color: var(--entei-text-primary);
   text-align: left;
   cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   transition: background-color 100ms ease;
 }
 
