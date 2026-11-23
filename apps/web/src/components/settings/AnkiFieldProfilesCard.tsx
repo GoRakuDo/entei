@@ -1,42 +1,49 @@
 'use client';
-
 /**
- * AnkiFieldProfilesCard — /settings/ Anki page, "Anki Field Profiles & Formats"
- * card.
- * ---------------------------------------------------------------------------
- * Hand-drawn spec:
- *   Heading : Lucide FileStack + "Anki Field Profiles & Formats"
- *   Row 1   : Screenshot format — PNG / JPEG select.
- *   Row 2   : "Configure Anki flashcard deck profiles" toolbar with an
- *             Add Deck Profile (SquarePlus) action on the right.
- *   Deck Profiles list (accordion):
- *     - Each profile renders as a bordered card; the header (name + chevron)
- *       toggles the body. The first profile starts expanded.
- *     - Body: Name (text), Button (icon select), Deck (select of live
- *       deckNames), NoteType (select of live modelNames), a divider, then the
- *       Field / Value mapping table for the selected model's fields, and a
- *       full-width Remove button.
- *
- * Deck + model lists come from AnkiConnect (`deckNames` / `modelNames`) on
- * mount using the persisted server + apiKey. Each model's field list is
- * fetched on demand (`modelFieldNames`) and cached. When Anki is not running
- * the requests fail soft: the current deck / model value is kept and the
- * field table falls back to whatever the profile already persists.
- *
- * Persistence: every change writes through `updateAnkiConnectionPreferences`
- * (localStorage + desktop SQLite) the moment it happens — no Save button.
- * ---------------------------------------------------------------------------
+AnkiFieldProfilesCard — /settings/ Anki page, "Anki Field Profiles & Formats"
+card.
+---------------------------------------------------------------------------
+Hand-drawn spec:
+- Heading: Lucide FileStack + "Anki Field Profiles & Formats"
+- Row 1: Screenshot format PNG / JPEG select.
+- Row 2: "Configure Anki flashcard deck profiles" toolbar
+  + Add Deck Profile (SquarePlus) button.
+- Deck Profiles list (accordion):
+  collapsed card shows (name, chevron);
+  click toggles expanded.
+- Body: Name (text), Button (icon from live
+  deckNames), NoteType (from modelNames), divider,
+  Field / Value table (model's fields, and
+  full-width Remove button.
+- Deck / model lists query AnkiConnect (`deckNames` / `modelNames`) on mount
+  when no apiKey. The model's field list
+  loads via (`modelFieldNames`) and on failure we
+  do not fail the current deck — fields are kept and
+  the field table falls back to persisted field keys.
+- Persistence: every change calls `updateAnkiConnectionPreferences`
+  (localStorage on web / desktop SQLite) the moment it happens — no Save button.
+---------------------------------------------------------------------------
+Field Value column: Input for free-text (e.g. `{expression} - {reading}`)
+with a marker-selection button at the right edge that opens a scrolling
+dropdown of all Yomitan-compatible standard markers. Clicking a marker
+appends `{marker}` to the current value and auto-saves immediately.
+---------------------------------------------------------------------------
  */
-
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ChevronDown,
   ChevronUp,
+  ChevronsUpDown,
   Circle,
-  CircleDot,
-  Diamond,
+  CirclePlus,
+  DiamondPlus,
   FileStack,
-  Square,
   SquarePlus,
   Trash2,
   type LucideIcon,
@@ -51,6 +58,11 @@ import {
   SelectValue,
 } from '@/components/player/ui/select';
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/player/ui/popover';
+import {
   DEFAULT_ANKI_CONNECTION_PREFERENCES,
   readAnkiConnectionPreferences,
   updateAnkiConnectionPreferences,
@@ -59,53 +71,43 @@ import {
   type ScreenshotFormat,
 } from '@/features/player/anki-connection-preferences';
 import { AnkiConnectClient } from '@/features/player/anki-connect';
-import type { Dictionary } from '@i18n/types';
+import {
+  getStandardFieldMarkers,
+  wrapMarker,
+} from '@/modules/yomitan/anki/anki-markers';
+import type { Dictionary } from '@/i18n/types';
 
-const SCREENSHOT_FORMAT_OPTIONS: readonly ScreenshotFormat[] = ['png', 'jpeg'];
+const SCREENSHOT_FORMAT_OPTIONS: ScreenshotFormat[] = ['png', 'jpeg'];
 
-/** Icon rendered per AnkiCardFormatIcon value (matches the drawn ⊕ glyphs). */
+/** Icon shown on the card-format profile button (matches Yomitan ⊕ ⊞ ◆ symbols). */
 const ICON_GLYPHS: Record<AnkiCardFormatIcon, LucideIcon> = {
-  'big-circle': CircleDot,
+  'big-circle': CirclePlus,
   'small-circle': Circle,
-  'big-square': Square,
-  'big-diamond': Diamond,
+  'big-square': SquarePlus,
+  'big-diamond': DiamondPlus,
 };
 
-/** Common Yomitan markers offered as quick choices in the Value column. */
-const MARKER_OPTIONS: readonly string[] = [
-  '{expression}',
-  '{reading}',
-  '{glossary}',
-  '{audio}',
-  '{screenshot}',
-  '{sentence}',
-  '{sentence-furigana}',
-  '{cloze-prefix}',
-  '{cloze-body}',
-  '{cloze-suffix}',
-  '{frequencies}',
-  '{pitch-accents}',
-];
-
 export interface AnkiFieldProfilesCardProps {
-  /** Localized copy for this card (dict.ankiFieldProfiles). */
+  /** Localized strings for this card (dict.ankiFieldProfiles). */
   dict: Dictionary['ankiFieldProfiles'];
+  /** Factory for a new unique profile id (crypto.randomUUID when available). */
+  newProfileId?(): string;
 }
 
-/** Generate a unique profile id (crypto.randomUUID when available). */
-function newProfileId(): string {
-  try {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+function makeNewProfileId(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    try {
       return crypto.randomUUID();
+    } catch {
+      // fall through to fallback below
     }
-  } catch {
-    // fall through to the manual fallback
   }
   return `profile-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export function AnkiFieldProfilesCard({
   dict,
+  newProfileId = makeNewProfileId,
 }: AnkiFieldProfilesCardProps) {
   const [screenshotFormat, setScreenshotFormat] = useState<ScreenshotFormat>(
     DEFAULT_ANKI_CONNECTION_PREFERENCES.screenshotFormat,
@@ -113,16 +115,15 @@ export function AnkiFieldProfilesCard({
   const [cardFormats, setCardFormats] = useState<AnkiCardFormat[]>(
     DEFAULT_ANKI_CONNECTION_PREFERENCES.cardFormats,
   );
-  /** Which profile accordion is expanded (profile id); first one by default. */
+  /** Currently expanded accordion item (profile id); null = all collapsed. */
   const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  /** Live deck / model lists from AnkiConnect (empty until connected). */
+  /** Live deck / model lists (from AnkiConnect; empty when not connected). */
   const [decks, setDecks] = useState<string[]>([]);
   const [models, setModels] = useState<string[]>([]);
-  /** Cache of modelName -> field names fetched on demand. */
+  /** Cache modelName → field names to avoid re-fetching on every expand. */
   const fieldCacheRef = useRef<Map<string, string[]>>(new Map());
 
-  /* Seed from the persisted preferences on mount, then fetch deck/model lists. */
+  /* Seed saved values on mount + fetch deck/model lists. */
   useEffect(() => {
     const saved = readAnkiConnectionPreferences();
     setScreenshotFormat(saved.screenshotFormat);
@@ -134,7 +135,7 @@ export function AnkiFieldProfilesCard({
       saved.server,
       saved.apiKey || undefined,
     );
-    void (async () => {
+    (async () => {
       try {
         const [deckList, modelList] = await Promise.all([
           client.deckNames(controller.signal),
@@ -150,7 +151,7 @@ export function AnkiFieldProfilesCard({
     return () => controller.abort();
   }, []);
 
-  /** Fetch (and cache) the field names for a model; [] on failure. */
+  /** Fetch (and cache) field names for a model; never throws. */
   const resolveFields = useCallback(
     async (client: AnkiConnectClient, modelName: string): Promise<string[]> => {
       if (!modelName) return [];
@@ -200,7 +201,7 @@ export function AnkiFieldProfilesCard({
       setExpandedId(profile.id);
       return next;
     });
-  }, []);
+  }, [newProfileId]);
 
   const handleRemoveProfile = useCallback(
     (id: string) => {
@@ -216,18 +217,18 @@ export function AnkiFieldProfilesCard({
     [],
   );
 
-  /** NoteType change: swap model and refresh the field list for it. */
+  /** NoteType swap also refreshes the model and its field list. */
   const handleModelChange = useCallback(
     async (format: AnkiCardFormat, modelName: string) => {
       updateFormat(format.id, { model: modelName });
       const saved = readAnkiConnectionPreferences();
       const client = new AnkiConnectClient(saved.server, saved.apiKey || undefined);
       const fields = await resolveFields(client, modelName);
-      if (fields.length === 0) return; // fail-soft: keep existing mapping
+      if (fields.length === 0) return; // fail-soft: keep current fields
       setCardFormats((prev) => {
         const next = prev.map((f) => {
           if (f.id !== format.id) return f;
-          // Preserve values for fields that still exist on the new model.
+          // carry over values for fields still present on the new model.
           const carried: Record<string, string> = {};
           for (const field of fields) {
             if (f.fields[field]) carried[field] = f.fields[field];
@@ -306,7 +307,6 @@ export function AnkiFieldProfilesCard({
       <div className="entei-anki-profile-list">
         {cardFormats.map((format) => {
           const expanded = expandedId === format.id;
-          const IconGlyph = ICON_GLYPHS[format.icon];
           return (
             <div
               className="entei-anki-profile-card"
@@ -319,6 +319,15 @@ export function AnkiFieldProfilesCard({
                 aria-expanded={expanded}
                 onClick={() => setExpandedId(expanded ? null : format.id)}
               >
+                <span className="entei-anki-profile-icon-badge">
+                  {(() => {
+                    const IconGlyph = ICON_GLYPHS[format.icon];
+                    // small-circle renders slightly smaller so the glyph matches
+                    // its Yomitan counterpart (small filled dot vs. big ⊕).
+                    const iconSize = format.icon === 'small-circle' ? 12 : 16;
+                    return <IconGlyph size={iconSize} aria-hidden="true" />;
+                  })()}
+                </span>
                 <span className="entei-anki-profile-name">{format.name}</span>
                 {expanded ? (
                   <ChevronUp size={16} aria-hidden="true" />
@@ -523,7 +532,7 @@ function ProfileModelSelect({
   );
 }
 
-/* --- Field / Value mapping table --------------------------------------- */
+/* --- Field / Value table with per-row marker dropdown --------------------- */
 function ProfileFieldTable({
   format,
   dict,
@@ -538,25 +547,35 @@ function ProfileFieldTable({
   ) => Promise<string[]>;
   onFieldChange: (field: string, value: string) => void;
 }) {
-  /** Live field names for the model; falls back to the persisted field keys. */
+  /** Live field names from AnkiConnect; falls back to persisted field keys. */
   const [fields, setFields] = useState<string[]>(() =>
     Object.keys(format.fields),
   );
+
+  // Keep latest field values in a ref so keystrokes don't retrigger the effect.
+  const fieldsRef = useRef(format.fields);
+  fieldsRef.current = format.fields;
 
   useEffect(() => {
     let cancelled = false;
     const saved = readAnkiConnectionPreferences();
     const client = new AnkiConnectClient(saved.server, saved.apiKey || undefined);
-    void resolveFields(client, format.model).then((live) => {
+    resolveFields(client, format.model).then((live) => {
       if (cancelled) return;
-      // Merge live fields with any persisted ones so nothing is lost.
-      const merged = Array.from(new Set([...live, ...Object.keys(format.fields)]));
+      // Merge live fields with persisted ones so nothing is lost.
+      const merged = Array.from(new Set([...live, ...Object.keys(fieldsRef.current)]));
       setFields(merged);
     });
     return () => {
       cancelled = true;
     };
-  }, [format.model, format.fields, resolveFields]);
+  }, [format.model, resolveFields]);
+
+  /** Marker list depends on the profile kind (term / kanji). */
+  const markers = useMemo(
+    () => getStandardFieldMarkers(format.type),
+    [format.type],
+  );
 
   return (
     <div className="entei-anki-profile-fields">
@@ -568,24 +587,70 @@ function ProfileFieldTable({
         {fields.map((field) => (
           <div className="entei-anki-profile-field-row" key={field}>
             <span className="entei-anki-profile-field-name">{field}</span>
-            <Input
-              type="text"
-              className="entei-module-input entei-anki-profile-field-value"
-              value={format.fields[field] ?? ''}
-              placeholder={MARKER_OPTIONS[0]}
-              aria-label={`${field} ${dict.valueColumnHeader}`}
-              list={`entei-anki-markers-${format.id}`}
-              onChange={(event) => onFieldChange(field, event.target.value)}
-            />
+            <div className="entei-anki-profile-field-value-wrap">
+              <Input
+                type="text"
+                className="entei-module-input entei-anki-profile-field-value"
+                value={format.fields[field] ?? ''}
+                placeholder={wrapMarker(markers[0] ?? 'expression')}
+                aria-label={`${field} ${dict.valueColumnHeader}`}
+                onChange={(event) => onFieldChange(field, event.target.value)}
+              />
+              <MarkerSelectButton
+                markers={markers}
+                onSelect={(marker) => {
+                  const current = format.fields[field] ?? '';
+                  onFieldChange(field, current ? `${current} ${wrapMarker(marker)}` : wrapMarker(marker));
+                }}
+                ariaLabel={`${field} marker list`}
+              />
+            </div>
           </div>
         ))}
       </div>
-      {/* Shared marker suggestions for free-text value inputs. */}
-      <datalist id={`entei-anki-markers-${format.id}`}>
-        {MARKER_OPTIONS.map((marker) => (
-          <option key={marker} value={marker} />
-        ))}
-      </datalist>
     </div>
+  );
+}
+
+/* --- Marker selection popover (Yomitan-style dropdown) -------------------- */
+function MarkerSelectButton({
+  markers,
+  onSelect,
+  ariaLabel,
+}: {
+  markers: readonly string[];
+  onSelect: (marker: string) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger
+        type="button"
+        className="entei-anki-marker-trigger"
+        aria-label={ariaLabel}
+      >
+        <ChevronsUpDown size={14} aria-hidden="true" />
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={4}
+        className="entei-anki-marker-popover"
+      >
+        <div className="entei-anki-marker-list" role="listbox" aria-label={ariaLabel}>
+          {markers.map((marker) => (
+            <button
+              key={marker}
+              type="button"
+              role="option"
+              aria-selected={false}
+              className="entei-anki-marker-item"
+              onClick={() => onSelect(marker)}
+            >
+              <code className="entei-anki-marker-code">{wrapMarker(marker)}</code>
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

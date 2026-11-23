@@ -1991,3 +1991,93 @@ body[data-page='settings'] .entei-main {
 .entei-anki-profile-remove:hover {
   color: oklch(78% 0.19 25deg);
 }
+
+/* Icon badge shown at the left of each profile header (⊕/⊞/◆). */
+.entei-anki-profile-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--entei-btn-color);
+}
+
+/* Value column: input + marker trigger sit side by side. */
+.entei-anki-profile-field-value-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-4);
+  width: 100%;
+}
+
+.entei-anki-profile-field-value-wrap > .entei-anki-profile-field-value {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Marker dropdown trigger button (right edge of Value input). */
+.entei-anki-marker-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--entei-radius-md);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  background: var(--entei-surface);
+  color: var(--entei-text-secondary);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.entei-anki-marker-trigger:hover {
+  background: var(--entei-btn-color);
+  color: var(--entei-text-primary);
+  border-color: var(--entei-btn-color);
+}
+
+.entei-anki-marker-trigger:focus-visible {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Marker selection popover (Yomitan-style dropdown). */
+.entei-anki-marker-popover {
+  padding: 0;
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-md);
+  background: var(--entei-surface);
+  box-shadow: 0 4px 16px oklch(0% 0 0 / 0.16);
+}
+
+.entei-anki-marker-list {
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: var(--entei-space-4) 0;
+}
+
+.entei-anki-marker-item {
+  display: block;
+  width: 100%;
+  padding: var(--entei-space-8) var(--entei-space-16);
+  border: none;
+  background: transparent;
+  color: var(--entei-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+.entei-anki-marker-item:hover {
+  background: var(--entei-btn-color);
+}
+
+.entei-anki-marker-item:focus-visible {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: -2px;
+}
+
+.entei-anki-marker-code {
+  font-family: ui-monospace, 'SFMono-Regular', 'Menlo', var(--entei-font-system), monospace;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
