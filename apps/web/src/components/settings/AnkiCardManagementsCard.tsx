@@ -315,12 +315,12 @@ export function AnkiCardManagementsCard({
 
       {/* Anki Card Templates sub-section */}
       <div className="entei-anki-card-templates">
-        <h4 className="entei-anki-card-templates-heading">
-          {dict.templatesHeading}
-        </h4>
-        <p className="entei-anki-card-templates-description">
-          {dict.templatesDescription}
-        </p>
+        <div className="entei-module-field entei-anki-card-templates-field">
+          <div className="entei-module-field-text">
+            <span className="entei-module-field-label" role="heading" aria-level={4}>{dict.templatesHeading}</span>
+            <span className="entei-module-field-description">{dict.templatesDescription}</span>
+          </div>
+        </div>
 
         <div className="entei-anki-code-editor">
           <div className="entei-anki-code-gutter" ref={gutterRef} aria-hidden="true">
@@ -345,7 +345,7 @@ export function AnkiCardManagementsCard({
         <div className="entei-anki-card-templates-footer">
           <button
             type="button"
-            className="entei-anki-card-templates-reset"
+            className="entei-action-btn entei-anki-connect-btn entei-action-btn--full"
             onClick={handleTemplatesReset}
           >
             {dict.resetTemplatesLabel}

@@ -1808,19 +1808,10 @@ body[data-page='settings'] .entei-main {
   gap: var(--entei-space-8);
 }
 
-.entei-anki-card-templates-heading {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--entei-text-primary);
-}
-
-.entei-anki-card-templates-description {
-  margin: 0;
-  color: var(--entei-text-secondary);
-  font-size: 0.875rem;
-  line-height: 1.5;
-  text-wrap: pretty;
+/* Heading + description as a standard module field row. */
+.entei-anki-card-templates-field {
+  width: 100%;
+  margin-top: var(--entei-space-4);
 }
 
 /* CodeBlock editor: line-number gutter + editable textarea (dark surface,
@@ -1880,27 +1871,5 @@ body[data-page='settings'] .entei-main {
 }
 
 .entei-anki-card-templates-footer {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.entei-anki-card-templates-reset {
-  padding: var(--entei-space-8) var(--entei-space-16);
-  border: 1px solid oklch(100% 0 0deg / 0.12);
-  border-radius: var(--entei-radius-md);
-  background-color: transparent;
-  color: var(--entei-text-primary);
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: background-color 150ms ease, border-color 150ms ease;
-}
-
-.entei-anki-card-templates-reset:hover {
-  background-color: var(--entei-btn-color);
-  border-color: oklch(100% 0 0deg / 0.2);
-}
-
-.entei-anki-card-templates-reset:focus-visible {
-  outline: 2px solid var(--entei-text-secondary);
-  outline-offset: 2px;
+  width: 100%;
 }
