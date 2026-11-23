@@ -39,7 +39,6 @@ import {
 import {
   ChevronDown,
   ChevronUp,
-  ChevronsUpDown,
   FileStack,
   SquarePlus,
   Trash2,
@@ -577,24 +576,13 @@ function ProfileFieldTable({
         {fields.map((field) => (
           <div className="entei-anki-profile-field-row" key={field}>
             <span className="entei-anki-profile-field-name">{field}</span>
-            <div className="entei-anki-profile-field-value-wrap">
-              <Input
-                type="text"
-                className="entei-module-input entei-anki-profile-field-value"
-                value={format.fields[field] ?? ''}
-                placeholder={wrapMarker(markers[0] ?? 'expression')}
-                aria-label={`${field} ${dict.valueColumnHeader}`}
-                onChange={(event) => onFieldChange(field, event.target.value)}
-              />
-              <MarkerSelectButton
-                markers={markers}
-                onSelect={(marker) => {
-                  const current = format.fields[field] ?? '';
-                  onFieldChange(field, current ? `${current} ${wrapMarker(marker)}` : wrapMarker(marker));
-                }}
-                ariaLabel={`${field} marker list`}
-              />
-            </div>
+            <MarkerCombobox
+              value={format.fields[field] ?? ''}
+              onChange={(next) => onFieldChange(field, next)}
+              markers={markers}
+              placeholder={wrapMarker(markers[0] ?? 'expression')}
+              ariaLabel={`${field} ${dict.valueColumnHeader}`}
+            />
           </div>
         ))}
       </div>
@@ -602,25 +590,39 @@ function ProfileFieldTable({
   );
 }
 
-/* --- Marker selection popover (Yomitan-style dropdown) -------------------- */
-function MarkerSelectButton({
+/* --- Marker Combobox: unified input + chevron dropdown (Shadcn-style) ------ */
+function MarkerCombobox({
+  value,
+  onChange,
   markers,
-  onSelect,
+  placeholder,
   ariaLabel,
 }: {
+  value: string;
+  onChange: (next: string) => void;
   markers: readonly string[];
-  onSelect: (marker: string) => void;
+  placeholder: string;
   ariaLabel: string;
 }) {
   return (
     <Popover>
-      <PopoverTrigger
-        type="button"
-        className="entei-anki-marker-trigger"
-        aria-label={ariaLabel}
-      >
-        <ChevronsUpDown size={14} aria-hidden="true" />
-      </PopoverTrigger>
+      <div className="entei-anki-marker-combobox">
+        <input
+          type="text"
+          className="entei-anki-marker-combobox-input"
+          value={value}
+          placeholder={placeholder}
+          aria-label={ariaLabel}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <PopoverTrigger
+          type="button"
+          className="entei-anki-marker-combobox-chevron"
+          aria-label={`${ariaLabel} — marker list`}
+        >
+          <ChevronDown size={14} aria-hidden="true" />
+        </PopoverTrigger>
+      </div>
       <PopoverContent
         align="end"
         sideOffset={4}
@@ -634,7 +636,9 @@ function MarkerSelectButton({
               role="option"
               aria-selected={false}
               className="entei-anki-marker-item"
-              onClick={() => onSelect(marker)}
+              onClick={() => {
+                onChange(value ? `${value} ${wrapMarker(marker)}` : wrapMarker(marker));
+              }}
             >
               <code className="entei-anki-marker-code">{wrapMarker(marker)}</code>
             </button>

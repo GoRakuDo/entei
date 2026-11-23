@@ -2001,48 +2001,65 @@ body[data-page='settings'] .entei-main {
   color: oklch(78% 0.19 25deg);
 }
 
-/* Value column: input + marker trigger sit side by side. */
-.entei-anki-profile-field-value-wrap {
+/* Unified marker Combobox: single bordered container with input + chevron. */
+.entei-anki-marker-combobox {
   display: flex;
   align-items: center;
-  gap: var(--entei-space-4);
-  width: 100%;
+  width: 15rem;
+  height: var(--entei-touch-min);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-md);
+  background: var(--entei-surface);
+  padding-left: var(--entei-space-12);
+  padding-right: var(--entei-space-8);
+  transition: border-color 120ms ease;
 }
-
-.entei-anki-profile-field-value-wrap > .entei-anki-profile-field-value {
+.entei-anki-marker-combobox:focus-within {
+  border-color: var(--entei-focus-ring);
+}
+.entei-anki-marker-combobox-input {
   flex: 1 1 auto;
   min-width: 0;
+  height: 100%;
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--entei-text-primary);
+  font-family: ui-monospace, 'SFMono-Regular', 'Menlo', var(--entei-font-system), monospace;
+  font-size: 0.8125rem;
+  padding: 0;
 }
-
-/* Marker dropdown trigger button (right edge of Value input). */
-.entei-anki-marker-trigger {
+.entei-anki-marker-combobox-input::placeholder {
+  color: var(--entei-text-secondary);
+}
+.entei-anki-marker-combobox-chevron {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 auto;
-  width: 2rem;
-  height: 2rem;
-  border-radius: var(--entei-radius-md);
-  border: 1px solid oklch(100% 0 0deg / 0.08);
-  background: var(--entei-surface);
+  width: 1.5rem;
+  height: 1.5rem;
+  border: none;
+  background: transparent;
   color: var(--entei-text-secondary);
   cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+  border-radius: var(--entei-radius-sm);
+  opacity: 0.5;
+  transition: opacity 120ms ease, color 120ms ease;
 }
-
-.entei-anki-marker-trigger:hover {
-  background: var(--entei-btn-color);
+.entei-anki-marker-combobox-chevron:hover {
+  opacity: 1;
   color: var(--entei-text-primary);
-  border-color: var(--entei-btn-color);
 }
-
-.entei-anki-marker-trigger:focus-visible {
+.entei-anki-marker-combobox-chevron:focus-visible {
   outline: 2px solid var(--entei-focus-ring);
   outline-offset: 2px;
+  opacity: 1;
 }
 
 /* Marker selection popover (Yomitan-style dropdown). */
 .entei-anki-marker-popover {
+  min-width: 15rem;
   padding: 0;
   border: 1px solid oklch(100% 0 0deg / 0.08);
   border-radius: var(--entei-radius-md);
