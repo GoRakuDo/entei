@@ -1384,7 +1384,8 @@ body[data-page='settings'] .entei-main {
   /* Controls that are not a plain field input take the same 15rem, so their
      left edges line up with the inputs, selects and toggles above and below. */
   .entei-module-usage-btn,
-  .entei-module-list-toolbar .entei-action-btn {
+  .entei-module-list-toolbar .entei-action-btn,
+  .entei-anki-profiles-toolbar .entei-action-btn {
     width: 15rem;
     min-width: 15rem;
   }
