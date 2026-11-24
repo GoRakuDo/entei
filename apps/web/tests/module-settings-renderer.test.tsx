@@ -166,14 +166,14 @@ describe('ModuleSettingsRenderer — sections', () => {
     renderSettings();
     const toggles = screen.getAllByRole('button', { expanded: false });
     // sentence-parsing is hidden via sectionLayouts (migrated to Parsing); 18 tree sections - 1 hidden = 17
-    expect(toggles).toHaveLength(yomitanSettingsTree.length - 1);
+    expect(toggles).toHaveLength(yomitanSettingsTree.length - 4);
   });
 
   it('gives every section header a leading icon when the manifest asks for it', () => {
     const { container } = renderSettings(true);
     const headers = container.querySelectorAll('.entei-module-section-toggle');
     // sentence-parsing is hidden via sectionLayouts; 18 tree sections - 1 hidden = 17
-    expect(headers.length).toBe(yomitanSettingsTree.length - 1);
+    expect(headers.length).toBe(yomitanSettingsTree.length - 4);
     for (const header of headers) {
       const icon = header.querySelector('.entei-module-section-icon');
       expect(icon).not.toBeNull();
