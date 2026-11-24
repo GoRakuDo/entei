@@ -84,6 +84,12 @@ export type ModuleCopyKey =
  *   inputs side by side, each bound to its own field (`ModuleNumberGroupRow`).
  *   Upstream pairs its pixel/offset knobs this way (Popup Position & Size: `Size`
  *   is a Width and a Height input on one line).
+ * - `link` — a section EMPTY STATE: the section's own editor has moved elsewhere
+ *   in the app, so instead of rows this draws one centered card naming the move
+ *   (`label` / `description`) and a button (`action`) that navigates to the
+ *   section's new home (`target`, a top-level settings group id). It claims no
+ *   field, so it suppresses the section's residual descriptor-tree form without
+ *   replacing it with anything editable.
  */
 export type EnteiModuleRowLayout =
   | 'list'
@@ -92,7 +98,8 @@ export type EnteiModuleRowLayout =
   | 'inputs'
   | 'selects'
   | 'checkboxes'
-  | 'numbers';
+  | 'numbers'
+  | 'link';
 
 /**
  * One choice of a `selects` row's control.
@@ -205,8 +212,10 @@ export interface EnteiModuleRowBinding {
   label?: string;
   /** Row description under the label (wins over the descriptor's). */
   description?: string;
-  /** Action button label of a `usage` row. */
+  /** Action button label of a `usage` row, or of a `link` row's button. */
   action?: string;
+  /** Top-level settings group a `link` row's button navigates to (`anki`). */
+  target?: string;
   /** Sentence template of a `usage` row, with `{used}` / `{total}`. */
   usage?: string;
   /** Leading "none" option of a `field` row's select. */
@@ -385,6 +394,7 @@ const ROW_LAYOUTS: readonly EnteiModuleRowLayout[] = [
   'selects',
   'checkboxes',
   'numbers',
+  'link',
 ];
 
 /**
@@ -532,6 +542,21 @@ export function normalizeSectionLayouts(
           numberRow.description = numberDescription;
         }
         rows.push(numberRow);
+        continue;
+      }
+      if (layout === 'link') {
+        /* A `link` row is the section's empty state: it names a destination group
+           (`target`) and carries only its own text, so it edits NO field and reads
+           NO source. `target` is the one required address — a link to nowhere is a
+           dead control. */
+        const target = optionalId(row.target);
+        if (target === undefined) continue;
+        const linkRow: EnteiModuleRowBinding = { layout, target };
+        for (const key of ['label', 'description', 'action'] as const) {
+          const value = optionalId(row[key]);
+          if (value !== undefined) linkRow[key] = value;
+        }
+        rows.push(linkRow);
         continue;
       }
       if (field === undefined && source === undefined) continue;

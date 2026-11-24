@@ -116,6 +116,8 @@ import { ModuleUsageMeter } from '@/components/settings/ModuleUsageMeter';
 import type { ScanningInputManagerCopy } from '@/components/settings/ScanningInputManager';
 import { resolveModuleCopyTable } from '@/components/settings/module-copy';
 import { resolveModuleDataSource } from '@/components/settings/module-data-sources';
+import { PlayingCardsFan } from '@/components/settings/PlayingCardsFan';
+import { SettingsButton } from '@/components/settings/SettingsButton';
 import {
   hydrateYomitanOptions,
   isLockedOptionPath,
@@ -159,6 +161,16 @@ export interface ModuleSettingsRendererProps {
   module: EnteiModuleManifest;
   /** The app dictionary — the renderer's own chrome is localised from it. */
   dict: Dictionary;
+  /**
+   * Open a section's new home — the destination of a `link` row's button (Yomitan's
+   * Anki section, whose editor lives on the dedicated Anki page). The row hands
+   * over its own `target` (a top-level settings group id) and the page resolves it
+   * against its own group list, so this contract stays a plain string and the
+   * renderer never needs to know the app's group union. Absent (a module settings
+   * page shown outside the settings app) a `link` row still draws its card, with
+   * the button inert rather than broken.
+   */
+  onNavigate?: (target: string) => void;
 }
 
 /**
@@ -178,9 +190,10 @@ export function moduleHasSettings(
 export function ModuleSettingsRenderer({
   module,
   dict,
+  onNavigate,
 }: ModuleSettingsRendererProps) {
   if (!hasSettingsSchema(module)) return null;
-  return <SchemaSettings module={module} dict={dict} />;
+  return <SchemaSettings module={module} dict={dict} onNavigate={onNavigate} />;
 }
 
 /** The renderer's own chrome, localised by the app dictionary. */
@@ -197,6 +210,8 @@ interface SchemaSettingsProps {
     settingsSchema: readonly SettingSectionDescriptor[];
   };
   dict: Dictionary;
+  /** Destination of a `link` row's button (see `ModuleSettingsRendererProps`). */
+  onNavigate?: (target: string) => void;
 }
 
 /**
@@ -207,7 +222,7 @@ interface SchemaSettingsProps {
  * then answered from state; every write goes straight through the preferences
  * store (localStorage now, DB debounced).
  */
-function SchemaSettings({ module, dict }: SchemaSettingsProps) {
+function SchemaSettings({ module, dict, onNavigate }: SchemaSettingsProps) {
   const [options, setOptions] = useState<Options>(readYomitanOptions);
   const latest = useRef(options);
 
@@ -291,6 +306,7 @@ function SchemaSettings({ module, dict }: SchemaSettingsProps) {
           }
           onChange={update}
           onOptionsChange={setOptions}
+          onNavigate={onNavigate}
         />
       ))}
     </div>
@@ -367,6 +383,8 @@ interface ModuleSectionProps {
   onChange: (path: string, value: unknown) => void;
   /** Whole-tree setter, for fields whose editor owns an array (dictionaries). */
   onOptionsChange: (next: Options) => void;
+  /** Destination of a `link` row's button (see `ModuleSettingsRendererProps`). */
+  onNavigate?: (target: string) => void;
 }
 
 function ModuleSection({
@@ -381,6 +399,7 @@ function ModuleSection({
   onToggle,
   onChange,
   onOptionsChange,
+  onNavigate,
 }: ModuleSectionProps) {
   const panelId = useId();
   const descriptionId = `${panelId}-description`;
@@ -454,6 +473,7 @@ function ModuleSection({
                   labels={labels}
                   onChange={onChange}
                   onOptionsChange={onOptionsChange}
+                  onNavigate={onNavigate}
                 />
               ))}
             </div>
@@ -527,6 +547,8 @@ interface ModuleLayoutRowProps {
   labels: ModuleSettingsLabels;
   onChange: (path: string, value: unknown) => void;
   onOptionsChange: (next: Options) => void;
+  /** Destination of a `link` row's button (see `ModuleSettingsRendererProps`). */
+  onNavigate?: (target: string) => void;
 }
 
 /** One manifest-declared row: resolve its layout, then draw it. */
@@ -537,6 +559,7 @@ function ModuleLayoutRow({
   labels,
   onChange,
   onOptionsChange,
+  onNavigate,
 }: ModuleLayoutRowProps) {
   const source = resolveModuleDataSource(row.source);
   const field = row.field === undefined ? undefined : fields.get(row.field);
@@ -559,6 +582,40 @@ function ModuleLayoutRow({
         read={(path) => readOptionPath(options, path)}
         onChange={onChange}
       />
+    );
+  }
+
+  /* SECTION EMPTY STATE: this section's editor lives elsewhere in the app now, so
+     instead of rows the manifest draws one centered card naming the move and a
+     button that navigates to it. It edits no field and reads no source — it just
+     replaces the residual descriptor-tree form (Yomitan's Anki section, whose
+     connection and card-profile settings moved to the dedicated Anki page).
+     Resolved before the field lookup, which a row with neither a field nor a
+     source would otherwise fall through. */
+  if (row.layout === 'link') {
+    /* Fail-closed on copy, exactly like the grouped rows: a move notice with no
+       heading, or a button with no label, is a half-applied card rather than a
+       trustworthy one. `target` is already validated at parse time. */
+    if (row.label === undefined || row.action === undefined) return null;
+    return (
+      <div className="entei-module-empty-card">
+        <PlayingCardsFan
+          size={24}
+          className="entei-module-empty-card-icon"
+          aria-hidden="true"
+        />
+        <span className="entei-module-empty-card-title">{row.label}</span>
+        {row.description !== undefined && (
+          <p className="entei-module-empty-card-desc">{row.description}</p>
+        )}
+        <SettingsButton
+          icon={PlayingCardsFan}
+          className="entei-module-empty-card-btn"
+          onClick={() => onNavigate?.(row.target ?? 'anki')}
+        >
+          {row.action}
+        </SettingsButton>
+      </div>
     );
   }
 

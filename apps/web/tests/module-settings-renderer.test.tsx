@@ -1301,6 +1301,53 @@ describe('ModuleSettingsRenderer — the shipped Search Window layout', () => {
   });
 });
 
+describe('ModuleSettingsRenderer — a section the manifest turns into a link empty state', () => {
+  /**
+   * A section whose editor has moved elsewhere in the app (Yomitan's Anki, now on
+   * the dedicated Anki page) declares a `link` row: the manifest replaces the
+   * section's residual descriptor-tree form with ONE centered card naming the move
+   * and a button that navigates to the new home. Nothing here is a setting, so the
+   * card claims no field and the old form must not survive.
+   */
+  function renderAnki(onNavigate?: (target: string) => void) {
+    const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
+    if (yomitan === undefined) throw new Error('yomitan is not registered');
+    return render(
+      <ModuleSettingsRenderer
+        module={{ ...yomitan, showSectionIcons: true }}
+        dict={en}
+        onNavigate={onNavigate}
+      />,
+    );
+  }
+
+  it('draws the move notice and suppresses the old form entirely', () => {
+    const { container } = renderAnki();
+    openSection(/Anki/i);
+
+    expect(screen.getByText('Anki settings have moved')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Anki connection and card profile settings are now managed in the dedicated Anki section.',
+      ),
+    ).toBeTruthy();
+    // The empty-state card is a signpost, not a row: no field control remains.
+    const card = container.querySelector('.entei-module-empty-card');
+    expect(card).not.toBeNull();
+    expect(card?.querySelectorAll('input, textarea, [data-slot="switch"]')).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: 'Enable Anki integration' })).toBeNull();
+  });
+
+  it('navigates to the declared target group when the button is pressed', () => {
+    const onNavigate = vi.fn();
+    renderAnki(onNavigate);
+    openSection(/Anki/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Anki Settings' }));
+    expect(onNavigate).toHaveBeenCalledWith('anki');
+  });
+});
+
 describe('ModuleSettingsRenderer — the shipped Result Display layout', () => {
   /**
    * The grouping mode and the dictionaries it merges live in ONE upstream section,

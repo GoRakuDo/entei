@@ -889,6 +889,49 @@ body[data-page='settings'] .entei-main {
   border-top: 1px solid oklch(100% 0 0deg / 0.08);
 }
 
+/* SECTION EMPTY STATE (`link` layout) — a section whose editor has moved elsewhere
+   in the app draws one centered card naming the move and a button that navigates
+   to it. It claims no field: it replaces the section's residual descriptor-tree
+   form with a signpost rather than with anything editable. Centered on purpose —
+   this is a notice, not a row, so it sits apart from the label/control grid.
+   Spacing tokens only (#1641); OKLCH only (#1621); no negative margins (#2471). */
+.entei-module-empty-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--entei-space-32) var(--entei-space-24);
+  gap: var(--entei-space-16);
+  width: 100%;
+}
+.entei-module-empty-card-icon {
+  color: var(--entei-text-secondary);
+}
+.entei-module-empty-card-title {
+  font-family: var(--entei-font-body);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--entei-text-secondary);
+}
+.entei-module-empty-card-desc {
+  margin: 0;
+  max-width: 48ch;
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--entei-text-muted);
+  text-wrap: pretty;
+}
+/* 15rem baseline, same as the other standalone action buttons on this page
+   (`.entei-module-usage-btn`), so every card's primary action aligns. */
+.entei-module-empty-card-btn {
+  width: 15rem;
+  min-width: 15rem;
+  margin-top: var(--entei-space-8);
+}
+
 /* ==========================================================================
    MODULE LIST MANAGER (the standard installed-item layout)
    ==========================================================================

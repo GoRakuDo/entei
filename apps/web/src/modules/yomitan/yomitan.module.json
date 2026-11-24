@@ -613,6 +613,18 @@
       "section": "sentence-parsing",
       "rows": [],
       "hidden": true
+    },
+    {
+      "section": "anki",
+      "rows": [
+        {
+          "layout": "link",
+          "target": "anki",
+          "label": "Anki settings have moved",
+          "description": "Anki connection and card profile settings are now managed in the dedicated Anki section.",
+          "action": "Open Anki Settings"
+        }
+      ]
     }
   ]
 }

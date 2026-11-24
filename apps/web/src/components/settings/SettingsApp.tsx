@@ -704,7 +704,11 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
           selectedModule !== undefined &&
           moduleHasSettings(selectedModule) && (
             <div className="entei-settings-section-stack">
-              <ModuleSettingsRenderer module={selectedModule} dict={dict} />
+              <ModuleSettingsRenderer
+                module={selectedModule}
+                dict={dict}
+                onNavigate={(target) => navigate(target as SettingsGroup, null)}
+              />
             </div>
           )}
       </div>
