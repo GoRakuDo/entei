@@ -126,8 +126,9 @@ import {
   writeOptionPath,
 } from '@/modules/yomitan/yomitan-preferences';
 import {
-  exportSettings,
+  buildSettingsExportPayload,
   importSettingsFromJson,
+  traceSettingsExported,
 } from '@/modules/yomitan/settings-backup';
 import {
   importDictionaryFromPath,
@@ -136,7 +137,7 @@ import {
   createDictionaryOptionEntry,
   type DictionaryOptionEntry,
 } from '@/modules/yomitan/dictionary-store';
-import { isTauri } from '@/features/player/tauri-bridge';
+import { isTauri, writeTextFileDirect } from '@/features/player/tauri-bridge';
 import { toast } from 'sonner';
 import type { Dictionary } from '@i18n/types';
 
@@ -897,8 +898,8 @@ function BackupRow({
     return `${now.getFullYear()}-${mm}-${dd}`;
   }
 
-  /** Trigger a browser download of `text` as `filename` (the Export paths). */
-  function downloadText(text: string, filename: string): void {
+  /** The web's own sink: a blob the browser hands to its downloads folder. */
+  function browserDownload(text: string, filename: string): void {
     const blob = new Blob([text], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -908,6 +909,40 @@ function BackupRow({
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Write `text` to the file the user chooses.
+   *
+   * Desktop app: the OS save dialog picks the path, and the native plugin writes
+   * it — an `<a download>` inside the webview drops the file into the browser's
+   * own downloads folder without ever asking where it should go. Web: the browser
+   * download is the only sink there is.
+   *
+   * @returns `true` when the file was written, `false` when the user cancelled —
+   * a cancel is a decision, not a failure, and must stay silent.
+   */
+  async function downloadText(text: string, defaultFilename: string): Promise<boolean> {
+    if (!isTauri()) {
+      browserDownload(text, defaultFilename);
+      return true;
+    }
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    const chosenPath = await save({
+      defaultPath: defaultFilename,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    });
+    if (chosenPath === null || chosenPath.length === 0) return false;
+    // Note: Android answers with a SAF `content://` URI, which has no filesystem
+    // path behind it — `std::fs::write` cannot open one. There the webview's own
+    // download stays the sink (what the platform had before this dialog), rather
+    // than failing an export the user already aimed somewhere.
+    if (chosenPath.includes('://')) {
+      browserDownload(text, defaultFilename);
+      return true;
+    }
+    await writeTextFileDirect(chosenPath, text);
+    return true;
   }
 
   async function handleImportSettingsFile(file: File): Promise<void> {
@@ -921,12 +956,21 @@ function BackupRow({
     }
   }
 
-  function handleExportSettings(): void {
+  async function handleExportSettings(): Promise<void> {
     try {
-      exportSettings();
+      const payload = buildSettingsExportPayload();
+      const exported = await downloadText(payload.contents, payload.filename);
+      if (!exported) return; // User cancelled: silence, not a failure.
+      traceSettingsExported(payload.profileCount);
       toast.success('Settings exported.');
-    } catch {
-      toast.error('Export failed.');
+    } catch (error) {
+      const message =
+        typeof error === 'string'
+          ? error
+          : error instanceof Error
+            ? error.message
+            : 'Export failed.';
+      toast.error(message);
     }
   }
 
@@ -978,10 +1022,11 @@ function BackupRow({
         exportedAt: new Date().toISOString(),
         dictionaries: installed,
       };
-      downloadText(
+      const exported = await downloadText(
         JSON.stringify(payload, null, 2),
         `yomitan-dictionaries-${todayStamp()}.json`,
       );
+      if (!exported) return; // User cancelled: silence, not a failure.
       toast.success(
         `Exported ${installed.length} dictionar${installed.length === 1 ? 'y' : 'ies'}.`,
       );
@@ -1023,7 +1068,7 @@ function BackupRow({
         <SettingsButton onClick={() => fileInputRef.current?.click()}>
           Import Setting
         </SettingsButton>
-        <SettingsButton onClick={handleExportSettings}>
+        <SettingsButton onClick={() => void handleExportSettings()}>
           Export Setting
         </SettingsButton>
       </div>

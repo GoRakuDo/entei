@@ -12,6 +12,7 @@ permissions = [
   "allow-modules-nadeshiko-user-me",
   "allow-modules-clipboard-read-text",
   "allow-modules-fetch-text",
+  "allow-modules-write-text-file",
   "allow-yomitan-import-dictionary",
   "allow-yomitan-list-dictionaries",
   "allow-yomitan-toggle-dictionary",

@@ -16,7 +16,9 @@
  *
  * EXPORT ENVELOPE: the file mirrors upstream's shape so a file exported here
  * can be imported back into the Chrome extension, not only into this app:
- * `{ version: 0, date, url, userAgent, options }`.
+ * `{ version: 0, date, url, userAgent, options }`. This module BUILDS that file;
+ * writing it is the settings page's job (native save dialog in the desktop app,
+ * a browser download on the web).
  * ---------------------------------------------------------------------------
  */
 
@@ -50,17 +52,41 @@ function extractOptions(data: unknown): Options {
 }
 
 /**
- * Export the current Yomitan options to a downloadable `.json` file.
+ * A finished settings export, ready for whichever sink writes it.
+ *
+ * WHERE the file lands is the caller's decision, not this module's: the settings
+ * page asks the OS for a path in the desktop app and falls back to a browser
+ * download on the web (see `ModuleSettingsRenderer.downloadText`). Keeping the
+ * payload separate from the download is what lets the desktop app use the native
+ * save dialog at all — an `<a download>` inside the webview never asks.
+ */
+export interface SettingsExportPayload {
+  /** `yomitan-settings-YYYY-MM-DD-HH-mm-ss.json`. */
+  filename: string;
+  /** Upstream-compatible envelope JSON, 4-space indented. */
+  contents: string;
+  /** Profiles in the exported tree (trace line; the toast does not use it). */
+  profileCount: number;
+}
+
+/**
+ * Build the export payload for the current Yomitan options.
  *
  * Produces an upstream-compatible envelope so the file is portable between
  * this app and the Chrome extension.
  */
-export function exportSettings(): void {
+export function buildSettingsExportPayload(): SettingsExportPayload {
   const options = readYomitanOptions();
   const now = new Date();
   const pad = (n: number): string => String(n).padStart(2, '0');
-  const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-  const filename = `yomitan-settings-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}.json`;
+  const y = now.getFullYear();
+  const mo = pad(now.getMonth() + 1);
+  const d = pad(now.getDate());
+  const h = pad(now.getHours());
+  const mi = pad(now.getMinutes());
+  const s = pad(now.getSeconds());
+  const filename = `yomitan-settings-${y}-${mo}-${d}-${h}-${mi}-${s}.json`;
+  const dateStr = `${y}-${mo}-${d} ${h}:${mi}:${s}`;
 
   const envelope = {
     version: 0,
@@ -70,19 +96,21 @@ export function exportSettings(): void {
     options,
   };
 
-  const blob = new Blob([JSON.stringify(envelope, null, 4)], {
-    type: 'application/json',
-  });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+  return {
+    filename,
+    contents: JSON.stringify(envelope, null, 4),
+    profileCount: options.profiles.length,
+  };
+}
 
-  traceYomitan('settings_exported', { profiles: options.profiles.length });
+/**
+ * Record a completed export in the trace journal.
+ *
+ * Called by the sink AFTER the file was actually written, so a cancelled save
+ * dialog leaves no "exported" line behind.
+ */
+export function traceSettingsExported(profileCount: number): void {
+  traceYomitan('settings_exported', { profiles: profileCount });
 }
 
 /**

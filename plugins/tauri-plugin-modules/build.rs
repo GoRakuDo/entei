@@ -8,6 +8,7 @@ const COMMANDS: &[&str] = &[
     "modules_nadeshiko_user_me",
     "modules_clipboard_read_text",
     "modules_fetch_text",
+    "modules_write_text_file",
     "yomitan_import_dictionary",
     "yomitan_list_dictionaries",
     "yomitan_toggle_dictionary",

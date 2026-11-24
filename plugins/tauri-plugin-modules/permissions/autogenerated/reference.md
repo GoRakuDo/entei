@@ -13,6 +13,7 @@ Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshik
 - `allow-modules-nadeshiko-user-me`
 - `allow-modules-clipboard-read-text`
 - `allow-modules-fetch-text`
+- `allow-modules-write-text-file`
 - `allow-yomitan-import-dictionary`
 - `allow-yomitan-list-dictionaries`
 - `allow-yomitan-toggle-dictionary`
@@ -401,6 +402,32 @@ Enables the modules_nadeshiko_user_me command without any pre-configured scope.
 <td>
 
 Denies the modules_nadeshiko_user_me command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:allow-modules-write-text-file`
+
+</td>
+<td>
+
+Enables the modules_write_text_file command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-modules-write-text-file`
+
+</td>
+<td>
+
+Denies the modules_write_text_file command without any pre-configured scope.
 
 </td>
 </tr>

@@ -48,6 +48,22 @@ import {
   SCANNING_INPUTS_COPY,
 } from '@/components/settings/module-copy';
 
+/** The OS save dialog the desktop Export path hands the path back from. */
+const dialogSpies = vi.hoisted(() => ({ save: vi.fn(), open: vi.fn() }));
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  save: dialogSpies.save,
+  open: dialogSpies.open,
+}));
+
+/** The Export path's only user-visible outcome: a confirmation, or nothing. */
+const toastSpies = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warning: vi.fn(),
+}));
+vi.mock('sonner', () => ({ toast: toastSpies }));
+
 /**
  * The renderer's own chrome is localised by the dictionary it is handed;
  * everything a ROW draws is the manifest's literal English text plus the app's
@@ -1563,5 +1579,133 @@ describe('ModuleSettingsRenderer — the shipped Result Display layout', () => {
       storedDictionaries().find((entry) => entry.name === 'JMdict')
         ?.allowSecondarySearches,
     ).toBe(false);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * The Backup card's Export Setting action
+ * -------------------------------------------------------------------------
+ * The export used to be an `<a download>` only, which inside the desktop webview
+ * drops the file into the browser's own downloads folder without asking where it
+ * should go. It now goes through the OS save dialog, and a CANCEL has to leave
+ * the page quiet — a cancel is the user's decision, not a failure.
+ */
+
+describe('ModuleSettingsRenderer — the Backup export sink', () => {
+  type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+
+  /** Every IPC the export path made: the plugin write, and nothing else. */
+  function writeCalls(invoke: Invoke & { mock: { calls: [string, unknown?][] } }) {
+    return invoke.mock.calls.filter(
+      ([command]) => command === 'plugin:modules|modules_write_text_file',
+    );
+  }
+
+  function installTauri(): Invoke & { mock: { calls: [string, unknown?][] } } {
+    const invoke = vi.fn(async () => null) as unknown as Invoke & {
+      mock: { calls: [string, unknown?][] };
+    };
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke };
+    return invoke;
+  }
+
+  function removeTauri(): void {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  }
+
+  function clickExportSetting(): void {
+    openSection(/Backup/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Export Setting' }));
+  }
+
+  afterEach(() => {
+    removeTauri();
+    dialogSpies.save.mockReset();
+    toastSpies.success.mockReset();
+    toastSpies.error.mockReset();
+  });
+
+  it('asks the OS where to save, and stays quiet when the user cancels', async () => {
+    installTauri();
+    dialogSpies.save.mockResolvedValue(null);
+    renderSettings();
+    clickExportSetting();
+
+    await waitFor(() => expect(dialogSpies.save).toHaveBeenCalledTimes(1));
+    const saveOptions = dialogSpies.save.mock.calls[0]![0] as {
+      defaultPath: string;
+      filters: { name: string; extensions: string[] }[];
+    };
+    expect(saveOptions.defaultPath).toMatch(
+      /^yomitan-settings-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.json$/,
+    );
+    expect(saveOptions.filters).toEqual([{ name: 'JSON', extensions: ['json'] }]);
+
+    // Nothing was written, and neither a success nor an error was announced for
+    // THIS export (the page's background sources may toast their own failures
+    // when the Tauri stub answers nothing).
+    expect(toastSpies.success).not.toHaveBeenCalledWith('Settings exported.');
+    expect(
+      toastSpies.error.mock.calls.filter(([message]) => message === 'Export failed.'),
+    ).toHaveLength(0);
+    expect(dialogSpies.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes the exported settings to the chosen path and confirms once', async () => {
+    const invoke = installTauri();
+    dialogSpies.save.mockResolvedValue(String.raw`C:\Users\yosia\yomitan-settings.json`);
+    renderSettings();
+    clickExportSetting();
+
+    await waitFor(() =>
+      expect(toastSpies.success).toHaveBeenCalledWith('Settings exported.'),
+    );
+    expect(
+      toastSpies.error.mock.calls.filter(([message]) => message === 'Export failed.'),
+    ).toHaveLength(0);
+
+    const writes = writeCalls(invoke);
+    expect(writes).toHaveLength(1);
+    const args = writes[0]![1] as { path: string; contents: string };
+    expect(args.path).toBe(String.raw`C:\Users\yosia\yomitan-settings.json`);
+    const envelope = JSON.parse(args.contents) as {
+      version: number;
+      options: { profiles: unknown[] };
+    };
+    expect(envelope.version).toBe(0);
+    expect(envelope.options.profiles.length).toBeGreaterThan(0);
+  });
+
+  it('falls back to a browser download when the save dialog answers a SAF uri', async () => {
+    // Android hands back `content://…`, which no `std::fs::write` can open: the
+    // export must still reach the user, through the webview's own download.
+    const invoke = installTauri();
+    dialogSpies.save.mockResolvedValue('content://com.android.providers.downloads/1');
+    const clicked: string[] = [];
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        clicked.push(this.download);
+      });
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = vi.fn(() => 'blob:mock') as typeof URL.createObjectURL;
+    URL.revokeObjectURL = vi.fn() as typeof URL.revokeObjectURL;
+    try {
+      renderSettings();
+      clickExportSetting();
+      await waitFor(() =>
+        expect(toastSpies.success).toHaveBeenCalledWith('Settings exported.'),
+      );
+      expect(writeCalls(invoke)).toHaveLength(0);
+      expect(clicked).toHaveLength(1);
+      expect(clicked[0]).toMatch(
+        /^yomitan-settings-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.json$/,
+      );
+    } finally {
+      clickSpy.mockRestore();
+      URL.createObjectURL = originalCreate;
+      URL.revokeObjectURL = originalRevoke;
+    }
   });
 });

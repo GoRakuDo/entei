@@ -6,6 +6,8 @@
 //! - `clipboard` (`modules_clipboard_read_text`)
 //! - `fetch` (`modules_fetch_text`) — native cross-origin GET the webview's
 //!   `fetch` cannot make (no CORS headers on the target)
+//! - `file` (`modules_write_text_file`) — the write half of the OS save dialog:
+//!   the renderer picks a path, this writes it
 //! - `jimaku` (`modules_jimaku_*`)
 //! - `nadeshiko` (`modules_nadeshiko_*`)
 //! - `yomitan` (`yomitan_*`)
@@ -127,6 +129,21 @@ async fn modules_nadeshiko_user_me(api_key: String) -> Result<NadeshikoUserMe, N
 #[tauri::command]
 async fn modules_fetch_text(url: String, timeout_ms: Option<u64>) -> Result<String, String> {
     fetch::fetch_text(&url, timeout_ms).await
+}
+/// Write `contents` (UTF-8) to the `path` the user picked in the OS save dialog.
+///
+/// The webview has no way to write an arbitrary path: `<a download>` drops the
+/// file into the browser's own downloads folder without ever asking where it
+/// should go. So the renderer asks the OS for a path (`@tauri-apps/plugin-dialog`
+/// `save`) and hands it here.
+///
+/// The write runs on the blocking pool — it is a filesystem call, and the file
+/// (a settings export) is small enough that one crossing covers it.
+#[tauri::command]
+async fn modules_write_text_file(path: String, contents: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || write_text_file(&path, &contents))
+        .await
+        .map_err(|err| format!("file write task failed: {err}"))?
 }
 #[tauri::command]
 async fn modules_clipboard_read_text() -> Option<String> {
@@ -317,6 +334,69 @@ async fn yomitan_get_storage_usage<R: Runtime>(
         .map_err(|err| format!("dictionary task failed: {err}"))
 }
 
+/// Write `contents` as UTF-8 to `path`, creating a missing parent directory.
+///
+/// The save dialog answers with a path the user typed or picked; its parent is
+/// normally an existing folder, but a path typed into the dialog may name one
+/// that is not there yet. Creating it matches what every other save dialog does,
+/// and a genuinely unwritable location still fails on the write itself.
+///
+/// Errors name the target: the toast that shows them has to tell the user which
+/// file could not be written. Nothing else is included — a settings export holds
+/// no credential.
+fn write_text_file(path: &str, contents: &str) -> Result<(), String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("no save path was given".to_string());
+    }
+    let target = Path::new(path);
+    if let Some(parent) = target.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            std::fs::create_dir_all(parent)
+                .map_err(|err| format!("could not create {}: {err}", parent.display()))?;
+        }
+    }
+    std::fs::write(target, contents.as_bytes())
+        .map_err(|err| format!("could not write {}: {err}", target.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_text_file;
+    use std::path::PathBuf;
+
+    /// A fresh directory under the OS temp dir, named for this test.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("entei-modules-write-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    #[test]
+    fn writes_the_contents_and_creates_a_missing_parent() {
+        let dir = scratch("nested");
+        // Two levels that do not exist yet, the way a path typed into a save
+        // dialog can name a folder the user has not created.
+        let target = dir.join("inner").join("settings.json");
+
+        write_text_file(&target.to_string_lossy(), "{\"version\":0}").unwrap();
+
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "{\"version\":0}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn refuses_an_empty_path() {
+        // The dialog's cancel is the caller's branch, so an empty path here is a
+        // bug on the caller's side and must not reach `std::fs::write` (which
+        // would report a confusing "could not write : ...").
+        assert_eq!(
+            write_text_file("   ", "{}"),
+            Err("no save path was given".to_string())
+        );
+    }
+}
+
 /// Resolve `app_data_dir/yomitan-dictionaries.db` and register state at startup.
 fn resolve_dictionary_db_dir<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
     app.path()
@@ -340,6 +420,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             modules_nadeshiko_user_me,
             modules_clipboard_read_text,
             modules_fetch_text,
+            modules_write_text_file,
             yomitan_import_dictionary,
             yomitan_list_dictionaries,
             yomitan_toggle_dictionary,

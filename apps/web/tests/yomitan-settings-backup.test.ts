@@ -9,14 +9,16 @@
  * - import dispatches `entei:yomitan-options-updated`
  * - malformed JSON → throws with a clear message
  * - missing options tree → throws
- * - export produces an upstream-compatible envelope (version, date, url, options)
+ * - export builds an upstream-compatible envelope (version, date, url, options)
  * - export filename matches `yomitan-settings-YYYY-MM-DD-HH-mm-ss.json`
+ *   (the file is then written by the settings page: native save dialog on the
+ *   desktop app, browser download on the web)
  * - reset restores host defaults and dispatches the event
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import {
-  exportSettings,
+  buildSettingsExportPayload,
   importSettingsFromJson,
   resetSettings,
   YOMITAN_OPTIONS_UPDATED_EVENT,
@@ -234,128 +236,21 @@ describe('importSettingsFromJson — errors', () => {
  * Export
  * ------------------------------------------------------------------------- */
 
-describe('exportSettings', () => {
-  /** Capture Blob creation and anchor click without a real DOM download. */
-  function captureBlobDownload(): { blob: Blob; filename: string } {
-    let capturedBlob: Blob | undefined;
-    let capturedFilename = '';
-
-    // Mock URL.createObjectURL and revokeObjectURL.
-    const origCreate = URL.createObjectURL;
-    const origRevoke = URL.revokeObjectURL;
-    URL.createObjectURL = vi.fn(() => 'blob:mock');
-    URL.revokeObjectURL = vi.fn();
-
-    const origCreateElement = document.createElement.bind(document);
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
-      const el = origCreateElement(tag);
-      if (tag === 'a') {
-        Object.defineProperty(el, 'click', {
-          value: vi.fn(() => {
-            capturedFilename = (el as HTMLAnchorElement).download;
-          }),
-          writable: true,
-        });
-        Object.defineProperty(el, 'href', {
-          get() { return ''; },
-          set(v: string) { /* store blob URL if needed */ },
-          configurable: true,
-        });
-      }
-      return el;
-    });
-
-    // Intercept Blob constructor to capture the blob.
-    const origBlob = globalThis.Blob;
-    // We read the blob from the anchor's href assignment, but we capture it
-    // differently — by spying on the Blob constructor via a Proxy. The simplest
-    // approach: since exportSettings creates a Blob and calls createObjectURL,
-    // we just verify createObjectURL was called.
-    void origBlob;
-
-    exportSettings();
-
-    // Restore.
-    URL.createObjectURL = origCreate;
-    URL.revokeObjectURL = origRevoke;
-
-    return { blob: capturedBlob!, filename: capturedFilename };
-  }
-
-  it('triggers a download with an upstream-compatible filename', () => {
-    let filename = '';
-    const origCreate = URL.createObjectURL;
-    const origRevoke = URL.revokeObjectURL;
-    URL.createObjectURL = vi.fn(() => 'blob:mock');
-    URL.revokeObjectURL = vi.fn();
-
-    const origCreateElement = document.createElement.bind(document);
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
-      const el = origCreateElement(tag);
-      if (tag === 'a') {
-        Object.defineProperty(el, 'click', {
-          value: vi.fn(() => {
-            filename = (el as HTMLAnchorElement).download;
-          }),
-          writable: true,
-        });
-        Object.defineProperty(el, 'href', {
-          get() { return ''; },
-          set() {},
-          configurable: true,
-        });
-      }
-      return el;
-    });
-
-    exportSettings();
-
-    URL.createObjectURL = origCreate;
-    URL.revokeObjectURL = origRevoke;
-
+describe('buildSettingsExportPayload', () => {
+  it('names the file the way upstream does', () => {
+    const payload = buildSettingsExportPayload();
     // yomitan-settings-YYYY-MM-DD-HH-mm-ss.json
-    expect(filename).toMatch(/^yomitan-settings-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.json$/);
+    expect(payload.filename).toMatch(
+      /^yomitan-settings-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.json$/,
+    );
   });
 
-  it('writes the envelope to a Blob (via createObjectURL)', () => {
-    let capturedBlobContent = '';
+  it('builds the upstream-compatible envelope as 4-space indented JSON', () => {
+    const payload = buildSettingsExportPayload();
+    // A backup a human may diff: the pretty printing is part of the contract.
+    expect(payload.contents).toContain('\n    "version": 0,');
 
-    const origCreate = URL.createObjectURL;
-    const origRevoke = URL.revokeObjectURL;
-    URL.createObjectURL = vi.fn(() => 'blob:mock');
-    URL.revokeObjectURL = vi.fn();
-
-    const origCreateElement = document.createElement.bind(document);
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
-      const el = origCreateElement(tag);
-      if (tag === 'a') {
-        Object.defineProperty(el, 'click', { value: vi.fn(), writable: true });
-        Object.defineProperty(el, 'href', {
-          get() { return ''; },
-          set() {},
-          configurable: true,
-        });
-      }
-      return el;
-    });
-
-    // Intercept Blob to capture the content.
-    const origBlobCtor = globalThis.Blob;
-    globalThis.Blob = class FakeBlob {
-      parts: BlobPart[];
-      constructor(parts: BlobPart[]) {
-        this.parts = parts;
-        capturedBlobContent = String(parts[0]);
-      }
-    } as unknown as typeof Blob;
-
-    exportSettings();
-
-    globalThis.Blob = origBlobCtor;
-    URL.createObjectURL = origCreate;
-    URL.revokeObjectURL = origRevoke;
-
-    const envelope = JSON.parse(capturedBlobContent) as {
+    const envelope = JSON.parse(payload.contents) as {
       version: number;
       date: string;
       url: string;
@@ -370,6 +265,11 @@ describe('exportSettings', () => {
     // The options tree is present and has profiles.
     expect(Array.isArray(envelope.options.profiles)).toBe(true);
     expect((envelope.options.profiles as unknown[]).length).toBeGreaterThan(0);
+  });
+
+  it('counts the profiles it exported, for the trace line', () => {
+    const payload = buildSettingsExportPayload();
+    expect(payload.profileCount).toBe(readYomitanOptions().profiles.length);
   });
 });
 

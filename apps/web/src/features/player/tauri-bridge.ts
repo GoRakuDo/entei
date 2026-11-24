@@ -335,6 +335,35 @@ export async function fetchTextDirect(url: string, timeoutMs?: number): Promise<
 }
 
 /* ---------------------------------------------------------------------------
+ * Local files (OS save dialog)
+ * --------------------------------------------------------------------------
+ * A webview cannot write an arbitrary path: `<a download>` sends every file to
+ * the browser's own downloads folder without asking where it should go. So the
+ * renderer asks the OS for a path (`@tauri-apps/plugin-dialog` `save`) and this
+ * is the native command that writes it.
+ */
+
+/**
+ * Write `contents` (UTF-8) to `path`, natively.
+ *
+ * The counterpart of the save dialog: a user cancel is the caller's branch (the
+ * dialog answers `null`), while a write that fails rejects with the reason the
+ * plugin produced (it names the target file).
+ */
+export async function writeTextFileDirect(
+  path: string,
+  contents: string,
+): Promise<void> {
+  if (!isTauri()) {
+    throw new Error('tauri runtime unavailable');
+  }
+  await invokePluginCommand<void>('plugin:modules|modules_write_text_file', {
+    path,
+    contents,
+  });
+}
+
+/* ---------------------------------------------------------------------------
  * Yomitan dictionaries (native engine)
  * --------------------------------------------------------------------------
  * The dictionary database is Rust: `plugins/tauri-plugin-modules`
