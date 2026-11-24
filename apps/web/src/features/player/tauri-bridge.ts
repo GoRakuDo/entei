@@ -445,6 +445,31 @@ export function yomitanImportDictionaryDirect(args: {
 }
 
 /**
+ * Import a Yomitan "Export Database" backup (Dexie JSON) from an absolute
+ * path the user picked. Streams the whole file off disk and returns every
+ * dictionary the backup carried. Rejects outside Tauri.
+ */
+export function importDictionaryDexieDirect(path: string): Promise<YomitanDictionarySummary[]> {
+  return invokePluginCommand<YomitanDictionarySummary[]>(
+    'plugin:modules|yomitan_import_dictionary_dexie',
+    { jsonPath: path },
+  );
+}
+
+/**
+ * Export every installed dictionary to a Yomitan Dexie JSON backup at an
+ * absolute path the user chose in the native save dialog. Streams straight
+ * to disk and returns the number of dictionaries written. Rejects outside
+ * Tauri.
+ */
+export function exportDictionaryDexieDirect(path: string): Promise<number> {
+  return invokePluginCommand<number>(
+    'plugin:modules|yomitan_export_dictionary_dexie',
+    { path },
+  );
+}
+
+/**
  * Progress of a running dictionary import, as published by the native engine.
  *
  * The engine reports per BANK (the only whole-file boundaries a streamed ZIP

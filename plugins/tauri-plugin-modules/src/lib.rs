@@ -271,6 +271,17 @@ async fn yomitan_toggle_dictionary(
     with_yomitan_db!(state, |conn| yomitan::toggle_dictionary(conn, &id, enabled))
 }
 
+/// Export every installed dictionary to a Yomitan Dexie JSON backup at
+/// `path`, streamed straight to disk. Returns the number of dictionaries
+/// written. This is the inverse of [`yomitan_import_dictionary_dexie`], so a
+/// backup round-trips through any Yomitan.
+#[tauri::command]
+async fn yomitan_export_dictionary_dexie(
+    state: State<'_, YomitanDbState>,
+    path: String,
+) -> Result<u64, String> {
+    with_yomitan_db!(state, |conn| yomitan::export_dictionaries_to_dexie_json(conn, &path))
+}
 #[tauri::command]
 async fn yomitan_delete_dictionary(
     state: State<'_, YomitanDbState>,
@@ -451,6 +462,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             modules_write_text_file,
             yomitan_import_dictionary,
             yomitan_import_dictionary_dexie,
+            yomitan_export_dictionary_dexie,
             yomitan_list_dictionaries,
             yomitan_toggle_dictionary,
             yomitan_delete_dictionary,

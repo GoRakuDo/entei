@@ -133,11 +133,15 @@ import {
 import {
   importDictionaryFromPath,
   invalidateInstalledDictionaries,
-  listInstalledDictionaries,
   createDictionaryOptionEntry,
   type DictionaryOptionEntry,
 } from '@/modules/yomitan/dictionary-store';
-import { isTauri, writeTextFileDirect } from '@/features/player/tauri-bridge';
+import {
+  isTauri,
+  writeTextFileDirect,
+  importDictionaryDexieDirect,
+  exportDictionaryDexieDirect,
+} from '@/features/player/tauri-bridge';
 import { toast } from 'sonner';
 import type { Dictionary } from '@i18n/types';
 
@@ -974,7 +978,7 @@ function BackupRow({
     }
   }
 
-  /** Import one dictionary archive: a native path picker, then the engine. */
+  /** Import one dictionary archive (.zip) or Dexie backup (.json): a native path picker, then the engine. */
   async function handleImportDictionary(): Promise<void> {
     if (!isTauri()) {
       toast.error('Dictionary import requires the desktop app.');
@@ -990,6 +994,29 @@ function BackupRow({
         ],
       });
       if (typeof picked !== 'string' || picked.length === 0) return;
+      if (picked.toLowerCase().endsWith('.json')) {
+        // A Yomitan "Export Database" backup carries every dictionary at once.
+        const restored = await importDictionaryDexieDirect(picked);
+        invalidateInstalledDictionaries();
+        // Mirror every restored dictionary into the options tree (priority
+        // order), the SAME contract the single-dictionary ZIP branch below
+        // follows. Without this the backup's dictionaries exist in the engine
+        // but never in `options.dictionaries`, so a later reorder / toggle
+        // writes a list that silently drops them and they read as disabled.
+        const restoredNames = new Set(
+          restored.map((summary) => summary.title).filter((name) => name.length > 0),
+        );
+        const optionEntries = readOptionPath(options, 'dictionaries') as
+          DictionaryOptionEntry[] | undefined;
+        const next = writeOptionPath(options, 'dictionaries', [
+          ...(optionEntries ?? []).filter((entry) => !restoredNames.has(entry.name)),
+          ...[...restoredNames].map((name) => createDictionaryOptionEntry(name)),
+        ]);
+        onOptionsChange(next);
+        const count = restored.length;
+        toast.success(`Imported ${count} dictionar${count === 1 ? 'y' : 'ies'}.`);
+        return;
+      }
       const record = await importDictionaryFromPath(picked);
       // Mirror the installed dictionary into the options tree (priority order),
       // the same contract the Dictionaries list import follows.
@@ -1007,29 +1034,28 @@ function BackupRow({
     }
   }
 
-  /** Export the installed dictionary list as a portable `.json`. */
+  /** Export every installed dictionary as a full Yomitan Dexie `.json` backup. */
   async function handleExportDictionary(): Promise<void> {
     if (!isTauri()) {
       toast.error('Dictionary export requires the desktop app.');
       return;
     }
     try {
-      // Bypass the cache so the file reflects any import made this session.
-      invalidateInstalledDictionaries();
-      const installed = await listInstalledDictionaries();
-      const payload = {
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        dictionaries: installed,
-      };
-      const exported = await downloadText(
-        JSON.stringify(payload, null, 2),
-        `yomitan-dictionaries-${todayStamp()}.json`,
-      );
-      if (!exported) return; // User cancelled: silence, not a failure.
-      toast.success(
-        `Exported ${installed.length} dictionar${installed.length === 1 ? 'y' : 'ies'}.`,
-      );
+      const { save } = await import('@tauri-apps/plugin-dialog');
+      const chosenPath = await save({
+        defaultPath: `yomitan-dictionaries-${todayStamp()}.json`,
+        filters: [{ name: 'Yomitan Dictionary Backup', extensions: ['json'] }],
+      });
+      // A cancel is a decision, not a failure — stay silent.
+      if (chosenPath === null || chosenPath.length === 0) return;
+      // Note: Android answers with a SAF `content://` URI, which has no
+      // filesystem path behind it for the native engine to stream into.
+      if (chosenPath.includes('://')) {
+        toast.error('Dictionary export needs a real file path (not available on this platform).');
+        return;
+      }
+      const count = await exportDictionaryDexieDirect(chosenPath);
+      toast.success(`Exported ${count} dictionar${count === 1 ? 'y' : 'ies'}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Dictionary export failed.';
       toast.error(message);

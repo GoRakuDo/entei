@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-yomitan-import-dictionary-dexie"
+description = "Enables the yomitan_import_dictionary_dexie command without any pre-configured scope."
+commands.allow = ["yomitan_import_dictionary_dexie"]
+
+[[permission]]
+identifier = "deny-yomitan-import-dictionary-dexie"
+description = "Denies the yomitan_import_dictionary_dexie command without any pre-configured scope."
+commands.deny = ["yomitan_import_dictionary_dexie"]

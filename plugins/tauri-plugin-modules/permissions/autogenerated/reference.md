@@ -15,6 +15,8 @@ Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshik
 - `allow-modules-fetch-text`
 - `allow-modules-write-text-file`
 - `allow-yomitan-import-dictionary`
+- `allow-yomitan-import-dictionary-dexie`
+- `allow-yomitan-export-dictionary-dexie`
 - `allow-yomitan-list-dictionaries`
 - `allow-yomitan-toggle-dictionary`
 - `allow-yomitan-delete-dictionary`
@@ -513,6 +515,32 @@ Denies the yomitan_delete_dictionary command without any pre-configured scope.
 <tr>
 <td>
 
+`modules:allow-yomitan-export-dictionary-dexie`
+
+</td>
+<td>
+
+Enables the yomitan_export_dictionary_dexie command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-yomitan-export-dictionary-dexie`
+
+</td>
+<td>
+
+Denies the yomitan_export_dictionary_dexie command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `modules:allow-yomitan-find-kanji`
 
 </td>
@@ -714,6 +742,32 @@ Enables the yomitan_import_dictionary command without any pre-configured scope.
 <td>
 
 Denies the yomitan_import_dictionary command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:allow-yomitan-import-dictionary-dexie`
+
+</td>
+<td>
+
+Enables the yomitan_import_dictionary_dexie command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-yomitan-import-dictionary-dexie`
+
+</td>
+<td>
+
+Denies the yomitan_import_dictionary_dexie command without any pre-configured scope.
 
 </td>
 </tr>

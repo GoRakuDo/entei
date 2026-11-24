@@ -162,6 +162,14 @@ fn term_count(conn: &rusqlite::Connection) -> i64 {
         .expect("count terms")
 }
 
+/// Rows in any of the engine's tables — a generic counter so the round-trip
+/// test can assert every store (terms, kanjis, term_meta, tags, dictionaries)
+/// survives an export → re-import cycle, not just `terms`.
+fn table_count(conn: &rusqlite::Connection, table: &str) -> i64 {
+    conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
+        .unwrap_or_else(|e| panic!("count {table}: {e}"))
+}
+
 /// Entries in the single large bank [`build_single_large_bank_zip`] writes:
 /// enough that the bank's uncompressed size clears
 /// `yomitan::INTRA_BANK_PROGRESS_MIN_BYTES`-scale work (well over 1 MiB).
@@ -1156,4 +1164,136 @@ fn a_failed_dexie_import_rolls_back_and_preserves_the_previous_dictionary() {
     let listed = yomitan::list_dictionaries(&conn).expect("list");
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].id, first[0].id);
+}
+
+#[test]
+fn dexie_export_round_trips_through_import() {
+    let conn = yomitan::open_in_memory().expect("open in-memory database");
+    let summary = import(&conn, build_dictionary_zip());
+    let terms_before = term_count(&conn);
+    assert!(terms_before > 0, "fixture carries terms");
+    // Snapshot every store the export writes, so the round trip is proven for
+    // the WHOLE backup, not just `terms`.
+    let before = [
+        ("terms", term_count(&conn)),
+        ("kanjis", table_count(&conn, "kanjis")),
+        ("term_meta", table_count(&conn, "term_meta")),
+        ("tags", table_count(&conn, "tags")),
+        ("dictionaries", table_count(&conn, "dictionaries")),
+    ];
+    assert!(before[1].1 > 0, "fixture carries kanji");
+    assert!(before[2].1 > 0, "fixture carries term_meta");
+    assert!(before[3].1 > 0, "fixture carries tags");
+
+    // Export every dictionary to a Dexie backup on disk.
+    let path = std::env::temp_dir().join("entei-dexie-roundtrip.json");
+    let exported = yomitan::export_dictionaries_to_dexie_json(&conn, &path).expect("export");
+    assert_eq!(exported, 1, "one dictionary exported");
+    let bytes = std::fs::read(&path).expect("read exported backup");
+    let value: serde_json::Value =
+        serde_json::from_slice(&bytes).expect("exported backup is valid JSON");
+    assert_eq!(value["formatName"], "dexie");
+    assert_eq!(value["formatVersion"], 1);
+    assert_eq!(value["data"]["databaseName"], "dict");
+
+    // Re-import into a FRESH database: the backup must reconstruct the same
+    // dictionary (same authoritative id) and the same term rows.
+    let fresh = yomitan::open_in_memory().expect("open second in-memory database");
+    let mut progress = Vec::new();
+    let restored = yomitan::import_dictionary_from_dexie_json(
+        &fresh,
+        &path,
+        &mut |report| progress.push(report),
+    )
+    .expect("re-import exported backup");
+    assert_eq!(restored.len(), 1, "one dictionary restored");
+    assert_eq!(restored[0].id, summary.id, "authoritative id round-trips");
+    assert_eq!(restored[0].title, summary.title, "title round-trips");
+    assert_eq!(term_count(&fresh), terms_before, "terms round-trip");
+    // Every content store round-trips row-for-row, not just terms.
+    for (table, count_before) in before {
+        assert_eq!(
+            table_count(&fresh, table),
+            count_before,
+            "{table} round-trip"
+        );
+    }
+    // The restored dictionary answers lookups, proving the rows are usable
+    // (not merely present): a term, its freq meta, a kanji and a tag.
+    assert!(
+        !yomitan::find_terms(&fresh, "食べる", None)
+            .expect("find terms")
+            .is_empty(),
+        "restored terms answer a lookup"
+    );
+    assert!(yomitan::find_kanji(&fresh, "食").expect("find kanji").is_some());
+    assert_eq!(
+        yomitan::find_term_meta_bulk(&fresh, &["食べる".to_string()])
+            .expect("term meta")
+            .len(),
+        2,
+        "freq + pitch meta round-trip"
+    );
+    assert_eq!(
+        yomitan::find_tags_bulk(
+            &fresh,
+            &[yomitan::TagQuery {
+                query: "v1".to_string(),
+                dictionary: summary.title.clone(),
+            }]
+        )
+        .expect("tag lookup")
+        .len(),
+        1,
+        "tags round-trip"
+    );
+    std::fs::remove_file(&path).ok();
+}
+
+/// Exporting a database with ZERO dictionaries must still produce a complete,
+/// parseable backup. The `dictionaries` store is always emitted as a real
+/// `{tableName, rowCount:0, rows:[]}` entry, so every following store needs a
+/// leading comma — omitting it splices two objects together (`…]}{…`) and
+/// corrupts the JSON. A Yomitan install with no dictionaries yet is exactly
+/// the state a first-time export hits, so this path must not emit garbage.
+#[test]
+fn dexie_export_of_an_empty_database_is_valid_json() {
+    let conn = yomitan::open_in_memory().expect("open in-memory database");
+    assert_eq!(table_count(&conn, "dictionaries"), 0, "no dictionaries yet");
+
+    let path = std::env::temp_dir().join("entei-dexie-empty.json");
+    let exported = yomitan::export_dictionaries_to_dexie_json(&conn, &path).expect("export");
+    assert_eq!(exported, 0, "no dictionaries exported");
+
+    let bytes = std::fs::read(&path).expect("read exported backup");
+    let value: serde_json::Value = serde_json::from_slice(&bytes)
+        .expect("a 0-dictionary backup must still be valid JSON");
+    assert_eq!(value["formatName"], "dexie");
+
+    // Every store is present as its own entry, comma-separated in one array.
+    let entries = value["data"]["data"].as_array().expect("data.data array");
+    let names: Vec<&str> = entries
+        .iter()
+        .map(|entry| entry["tableName"].as_str().expect("tableName"))
+        .collect();
+    assert_eq!(
+        names,
+        ["dictionaries", "terms", "kanji", "termMeta", "tagMeta"],
+        "all five stores emitted in order: {names:?}"
+    );
+    // The empty dictionaries entry is a real object, not a bare `{}` placeholder.
+    assert_eq!(entries[0]["rowCount"], 0);
+    assert!(entries[0]["rows"].as_array().expect("rows").is_empty());
+    // And no store accidentally carries rows for the dictionary that is not there.
+    for entry in entries.iter().skip(1) {
+        assert_eq!(entry["rowCount"], 0, "{entry} is empty");
+    }
+
+    // The backup re-imports cleanly into a fresh database (a no-op, but it must
+    // not error on the 0-row stores).
+    let fresh = yomitan::open_in_memory().expect("open fresh database");
+    let restored =
+        yomitan::import_dictionary_from_dexie_json(&fresh, &path, &mut |_| {}).expect("re-import");
+    assert!(restored.is_empty(), "nothing to restore: {restored:?}");
+    std::fs::remove_file(&path).ok();
 }

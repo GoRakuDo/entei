@@ -10,6 +10,8 @@ const COMMANDS: &[&str] = &[
     "modules_fetch_text",
     "modules_write_text_file",
     "yomitan_import_dictionary",
+    "yomitan_import_dictionary_dexie",
+    "yomitan_export_dictionary_dexie",
     "yomitan_list_dictionaries",
     "yomitan_toggle_dictionary",
     "yomitan_delete_dictionary",

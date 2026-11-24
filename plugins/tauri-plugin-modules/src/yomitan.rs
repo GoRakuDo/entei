@@ -26,8 +26,8 @@
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read, Seek};
-use std::path::Path;
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, Write};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -35,7 +35,7 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde::de::IgnoredAny;
 use serde::Deserializer as _;
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use zip::ZipArchive;
 
 /// File name of the dictionary-only database inside `app_data_dir`.
@@ -2083,6 +2083,334 @@ pub fn import_dictionary_from_dexie_json(
     import_dictionary_from_dexie_json_reader(conn, BufReader::new(file), on_progress)
 }
 
+// ---------------------------------------------------------------------------
+// Export (SQLite -> Dexie JSON backup)
+// ---------------------------------------------------------------------------
+
+/// Split one space-separated tag string into a JSON array, or `null` when it
+/// is empty/NULL. The importer joins `definitionTags`/`rules`/`termTags`/
+/// `onyomi`/`kunyomi`/`tags` with single spaces, so this is the inverse.
+fn tags_to_value(value: Option<String>) -> Value {
+    match value {
+        Some(text) if !text.trim().is_empty() => Value::Array(
+            text.split_whitespace()
+                .map(|tag| Value::String(tag.to_string()))
+                .collect(),
+        ),
+        _ => Value::Null,
+    }
+}
+
+/// Parse one JSON-text column (`glossary_json`, `meanings_json`, `stats_json`,
+/// `data_json`) back into a JSON value, or `null` when NULL/unparseable. The
+/// importer stored it with [`dexie_json`], so this round-trips the value.
+fn json_text_to_value(value: Option<String>) -> Value {
+    match value {
+        Some(text) => serde_json::from_str(&text).unwrap_or(Value::Null),
+        None => Value::Null,
+    }
+}
+
+/// One store's SQL and its `dictionary_id` column position (every store keys
+/// its rows to a dictionary, whose TITLE the exported rows carry).
+const DEXIE_STORES: &[(&str, &str, usize)] = &[
+    (
+        "terms",
+        "SELECT expression, dictionary_id, reading, definition_tags, rules, score, sequence, term_tags, glossary_json FROM terms",
+        1,
+    ),
+    (
+        "kanji",
+        "SELECT character, dictionary_id, onyomi, kunyomi, tags, meanings_json, stats_json FROM kanjis",
+        1,
+    ),
+    (
+        "termMeta",
+        "SELECT expression, dictionary_id, mode, data_json FROM term_meta",
+        1,
+    ),
+    (
+        "tagMeta",
+        "SELECT name, dictionary_id, category, sorting, notes, score FROM tags",
+        1,
+    ),
+];
+
+/// Build one exported row for `store` from the current `row`, mapping the
+/// flat SQLite columns back to the field names the importer's `insert_row`
+/// reads. `dictionary_id_col` locates the row's dictionary foreign key.
+fn dexie_row_to_value(
+    store: &str,
+    row: &rusqlite::Row<'_>,
+    dictionary_id_col: usize,
+    titles: &HashMap<String, String>,
+) -> Result<Value, String> {
+    let dictionary_id: String = row
+        .get(dictionary_id_col)
+        .map_err(|e| format!("read {store} dictionary_id: {e}"))?;
+    let dictionary = titles
+        .get(&dictionary_id)
+        .cloned()
+        .unwrap_or_default();
+    let column = |index: usize| -> Result<String, String> {
+        row.get::<_, Option<String>>(index)
+            .map(|value| value.unwrap_or_default())
+            .map_err(|e| format!("read {store} column {index}: {e}"))
+    };
+    let json_column = |index: usize| -> Result<Value, String> {
+        row.get::<_, Option<String>>(index)
+            .map(json_text_to_value)
+            .map_err(|e| format!("read {store} json column {index}: {e}"))
+    };
+    let int_column = |index: usize| -> Result<i64, String> {
+        row.get(index)
+            .map_err(|e| format!("read {store} int column {index}: {e}"))
+    };
+    Ok(match store {
+        "terms" => json!({
+            "expression": column(0)?,
+            "dictionary": dictionary,
+            "reading": row.get::<_, Option<String>>(2).map_err(|e| e.to_string())?,
+            "definitionTags": tags_to_value(row.get(3).map_err(|e| e.to_string())?),
+            "rules": tags_to_value(row.get(4).map_err(|e| e.to_string())?),
+            "score": int_column(5)?,
+            "sequence": int_column(6)?,
+            "termTags": tags_to_value(row.get(7).map_err(|e| e.to_string())?),
+            "glossary": json_column(8)?,
+        }),
+        "kanji" => json!({
+            "character": column(0)?,
+            "dictionary": dictionary,
+            "onyomi": tags_to_value(row.get(2).map_err(|e| e.to_string())?),
+            "kunyomi": tags_to_value(row.get(3).map_err(|e| e.to_string())?),
+            "tags": tags_to_value(row.get(4).map_err(|e| e.to_string())?),
+            "meanings": json_column(5)?,
+            "stats": json_column(6)?,
+        }),
+        "termMeta" => json!({
+            "expression": column(0)?,
+            "dictionary": dictionary,
+            "mode": row.get::<_, Option<String>>(2).map_err(|e| e.to_string())?,
+            "data": json_column(3)?,
+        }),
+        "tagMeta" => json!({
+            "name": column(0)?,
+            "dictionary": dictionary,
+            "category": row.get::<_, Option<String>>(2).map_err(|e| e.to_string())?,
+            "order": int_column(3)?,
+            "notes": row.get::<_, Option<String>>(4).map_err(|e| e.to_string())?,
+            "score": int_column(5)?,
+        }),
+        _ => return Err(format!("unknown dexie store {store}")),
+    })
+}
+
+/// Stream one store's `{tableName, inbound, rowCount, rows:[...]}` entry into
+/// `writer`. `first` governs the comma BEFORE the entry (the caller tracks how
+/// many entries the `data.data` array already holds). `inbound` records whether
+/// the store's rows carry their key INSIDE the object (`terms`, which has a
+/// keyPath) or OUTSIDE as a `[key, {...}]` tuple (the autoIncrement stores).
+/// Rows stream one at a time, so a multi-gigabyte `terms` store never lands in
+/// memory whole.
+fn write_dexie_store(
+    writer: &mut impl io::Write,
+    conn: &Connection,
+    store: &str,
+    sql: &str,
+    dictionary_id_col: usize,
+    first: bool,
+    titles: &HashMap<String, String>,
+) -> Result<(), String> {
+    let row_count: i64 = conn
+        .query_row(&format!("SELECT COUNT(*) FROM ({sql})"), [], |row| row.get(0))
+        .map_err(|e| format!("count {store} for export: {e}"))?;
+    if !first {
+        writer.write_all(b",").map_err(|e| e.to_string())?;
+    }
+    let inbound = store == "terms";
+    writer
+        .write_all(format!(
+            "{{\"tableName\":\"{store}\",\"inbound\":{inbound},\"rowCount\":{row_count},\"rows\":["
+        )
+        .as_bytes())
+        .map_err(|e| e.to_string())?;
+    let mut statement = conn
+        .prepare(sql)
+        .map_err(|e| format!("prepare {store} export: {e}"))?;
+    let mut rows = statement
+        .query([])
+        .map_err(|e| format!("query {store} export: {e}"))?;
+    let mut index: u64 = 0;
+    while let Some(row) = rows
+        .next()
+        .map_err(|e| format!("read {store} row: {e}"))?
+    {
+        if index > 0 {
+            writer.write_all(b",").map_err(|e| e.to_string())?;
+        }
+        let object = dexie_row_to_value(store, row, dictionary_id_col, titles)?;
+        serde_json::to_writer(&mut *writer, &object).map_err(|e| e.to_string())?;
+        index += 1;
+    }
+    writer.write_all(b"]").map_err(|e| e.to_string())?;
+    writer.write_all(b"}").map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Export every installed dictionary to a Yomitan Dexie JSON backup at `path`,
+/// streamed straight to disk (never buffered whole). Returns the number of
+/// dictionaries written. The output is the exact inverse of
+/// [`import_dictionary_from_dexie_json_reader`]: `data.data` is an array of
+/// `{tableName, rowCount, rows}` entries — one per store — so a backup
+/// re-imports into any Yomitan, this engine or the reference implementation.
+pub fn export_dictionaries_to_dexie_json(
+    conn: &Connection,
+    path: impl AsRef<Path>,
+) -> Result<u64, String> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
+        }
+    }
+    // Write to a sibling `.json.part` temp and rename into place only on
+    // success. A multi-gigabyte export that dies halfway (disk full, app
+    // killed) must never leave a truncated backup that a later import would
+    // choke on — the target either holds the previous good file or the new
+    // complete one, never a half-written body.
+    let tmp_path: PathBuf = path.with_extension("json.part");
+    let file = File::create(&tmp_path)
+        .map_err(|e| format!("failed to create {}: {e}", tmp_path.display()))?;
+    let mut writer = BufWriter::new(file);
+
+    // id -> title, so every row's `dictionary` names its dictionary by title
+    // (what an import resolves back through).
+    let mut titles: HashMap<String, String> = HashMap::new();
+    {
+        let mut statement = conn
+            .prepare("SELECT id, title FROM dictionaries")
+            .map_err(|e| format!("read dictionaries for export: {e}"))?;
+        let mut rows = statement.query([]).map_err(|e| e.to_string())?;
+        while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            let id: String = row.get(0).map_err(|e| e.to_string())?;
+            let title: String = row.get(1).map_err(|e| e.to_string())?;
+            titles.insert(id, title);
+        }
+    }
+
+    // Header by hand so the `data` object stays OPEN: the `data.data` array
+    // streams into it below, before the two closing braces. Serializing a
+    // whole `json!` value would close the top-level object and strand
+    // `data.data` outside it (invalid JSON).
+    writer
+        .write_all(b"{\"formatName\":\"dexie\",\"formatVersion\":1,\"data\":{\"databaseName\":\"dict\",\"databaseVersion\":6,\"tables\":")
+        .map_err(|e| e.to_string())?;
+    // `schema` is each store's Dexie index definition string, so the backup
+    // re-imports into a reference Yomitan with the same indexes this engine
+    // queries. `rowCount` is informational; the import streams `data.data` and
+    // ignores both.
+    let tables_meta = json!([
+        {
+            "name": "dictionaries",
+            "schema": "++id, &title",
+            "rowCount": conn.query_row("SELECT COUNT(*) FROM dictionaries", [], |row| row.get::<_, i64>(0)).map_err(|e| e.to_string())?.max(0),
+        },
+        {
+            "name": "terms",
+            "schema": "++id, [dictionary+expression], [dictionary+reading], [dictionary+expression+reading]",
+            "rowCount": conn.query_row("SELECT COUNT(*) FROM terms", [], |row| row.get::<_, i64>(0)).map_err(|e| e.to_string())?.max(0),
+        },
+        {
+            "name": "kanji",
+            "schema": "++id, [dictionary+character]",
+            "rowCount": conn.query_row("SELECT COUNT(*) FROM kanjis", [], |row| row.get::<_, i64>(0)).map_err(|e| e.to_string())?.max(0),
+        },
+        {
+            "name": "termMeta",
+            "schema": "++id, [dictionary+expression]",
+            "rowCount": conn.query_row("SELECT COUNT(*) FROM term_meta", [], |row| row.get::<_, i64>(0)).map_err(|e| e.to_string())?.max(0),
+        },
+        {
+            "name": "tagMeta",
+            "schema": "++id, [dictionary+name]",
+            "rowCount": conn.query_row("SELECT COUNT(*) FROM tags", [], |row| row.get::<_, i64>(0)).map_err(|e| e.to_string())?.max(0),
+        },
+    ]);
+    serde_json::to_writer(&mut writer, &tables_meta)
+        .map_err(|e| format!("failed to write dexie header: {e}"))?;
+    // `data.data` array, still inside the open `data` object.
+    writer.write_all(b",\"data\":[").map_err(|e| e.to_string())?;
+
+    // `dictionaries` is the first entry: each row is the primary-key tuple
+    // `[id, {...}]` the importer unwraps (not a plain object). `inbound` is
+    // false — the autoIncrement key travels OUTSIDE the object as the tuple.
+    let dictionaries_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM dictionaries", [], |row| row.get(0))
+        .map_err(|e| format!("count dictionaries for export: {e}"))?;
+    writer
+        .write_all(
+            format!("{{\"tableName\":\"dictionaries\",\"inbound\":false,\"rowCount\":{dictionaries_count},\"rows\":[")
+                .as_bytes(),
+        )
+        .map_err(|e| e.to_string())?;
+    {
+        let mut statement = conn
+            .prepare("SELECT id, title, format, revision, sequenced, author, url, description FROM dictionaries")
+            .map_err(|e| format!("prepare dictionary export: {e}"))?;
+        let mut rows = statement.query([]).map_err(|e| e.to_string())?;
+        let mut index: u64 = 0;
+        while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            if index > 0 {
+                writer.write_all(b",").map_err(|e| e.to_string())?;
+            }
+            let id: String = row.get(0).map_err(|e| e.to_string())?;
+            let format: i64 = row.get(2).map_err(|e| e.to_string())?;
+            let sequenced: i64 = row.get(4).map_err(|e| e.to_string())?;
+            let tuple = json!([
+                id,
+                json!({
+                    "title": row.get::<_, String>(1).map_err(|e| e.to_string())?,
+                    "version": format,
+                    "revision": row.get::<_, Option<String>>(3).map_err(|e| e.to_string())?,
+                    "sequenced": sequenced != 0,
+                    "author": row.get::<_, Option<String>>(5).map_err(|e| e.to_string())?,
+                    "url": row.get::<_, Option<String>>(6).map_err(|e| e.to_string())?,
+                    "description": row.get::<_, Option<String>>(7).map_err(|e| e.to_string())?,
+                    "format": format,
+                }),
+            ]);
+            serde_json::to_writer(&mut writer, &tuple).map_err(|e| e.to_string())?;
+            index += 1;
+        }
+    }
+    writer.write_all(b"]}").map_err(|e| e.to_string())?;
+
+    // The four content stores, each its own `{tableName, inbound, rowCount,
+    // rows}` entry. The `dictionaries` entry above is ALWAYS emitted (it is a
+    // real `{tableName, ...}` object even at 0 dictionaries), so every store
+    // here needs a leading comma — emitting the first without one would splice
+    // two objects together (`…]}{…`) and corrupt the JSON when dictionaries is
+    // empty.
+    for (store, sql, dictionary_id_col) in DEXIE_STORES {
+        write_dexie_store(&mut writer, conn, store, sql, *dictionary_id_col, false, &titles)?;
+    }
+
+    // Close the `data.data` array, the `data` object, and the top-level object.
+    writer.write_all(b"]}}").map_err(|e| e.to_string())?;
+    writer.flush().map_err(|e| e.to_string())?;
+    // Drop the handle BEFORE the rename: on Windows an open handle keeps the
+    // temp file locked and the rename would fail with a sharing violation.
+    drop(writer);
+    if let Err(error) = std::fs::rename(&tmp_path, path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(format!(
+            "failed to finalize {}: {error}",
+            path.display()
+        ));
+    }
+    Ok(dictionaries_count.max(0) as u64)
+}
 /// Position bookkeeping for one streamed backup: how many rows of the
 /// current store have landed (for the progress label) and, in the rare case
 /// a table's `tableName` key trails its `rows`, the one row held until the

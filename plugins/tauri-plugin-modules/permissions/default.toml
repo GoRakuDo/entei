@@ -14,6 +14,8 @@ permissions = [
   "allow-modules-fetch-text",
   "allow-modules-write-text-file",
   "allow-yomitan-import-dictionary",
+  "allow-yomitan-import-dictionary-dexie",
+  "allow-yomitan-export-dictionary-dexie",
   "allow-yomitan-list-dictionaries",
   "allow-yomitan-toggle-dictionary",
   "allow-yomitan-delete-dictionary",
