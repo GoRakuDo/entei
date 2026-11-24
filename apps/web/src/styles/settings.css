@@ -541,6 +541,18 @@ body[data-page='settings'] .entei-main {
   font-variant-numeric: tabular-nums;
 }
 
+/* Invalid select or input (e.g. deck/model missing in Anki) shows red border matching Yomitan upstream. */
+.entei-module-select[aria-invalid='true'],
+.entei-module-select[data-invalid='true'] {
+  border-color: var(--color-destructive) !important;
+}
+
+.entei-module-select[aria-invalid='true']:focus-visible,
+.entei-module-select[data-invalid='true']:focus-visible {
+  outline-color: var(--color-destructive) !important;
+  border-color: var(--color-destructive) !important;
+}
+
 /* ==========================================================================
    ANKI CONNECTION CARD (/settings/ Anki page)
    ===========================================================================
@@ -1908,11 +1920,21 @@ body[data-page='settings'] .entei-main {
 }
 
 .entei-anki-profile-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-8);
   font-family: var(--entei-font-body);
   font-size: 1rem;
   font-weight: 600;
   line-height: 1.4;
-  color: var(--entei-text-primary);
+  color: var(--entei-text-secondary);
+}
+
+.entei-anki-profile-name svg {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  color: var(--entei-text-secondary);
 }
 
 .entei-anki-profile-header:focus-visible {

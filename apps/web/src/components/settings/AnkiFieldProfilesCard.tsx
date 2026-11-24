@@ -315,7 +315,10 @@ export function AnkiFieldProfilesCard({
                 aria-expanded={expanded}
                 onClick={() => setExpandedId(expanded ? null : format.id)}
               >
-                <span className="entei-anki-profile-name">{format.name}</span>
+                <span className="entei-anki-profile-name">
+                  <FileStack size={16} aria-hidden="true" />
+                  <span>{format.name}</span>
+                </span>
                 {expanded ? (
                   <ChevronUp size={16} aria-hidden="true" />
                 ) : (
@@ -401,32 +404,40 @@ export function AnkiFieldProfilesCard({
                       </span>
                     </div>
                     <div className="entei-module-field-control">
-                      <Select
-                        value={format.deck}
-                        onValueChange={(next) =>
-                          updateFormat(format.id, { deck: next })
-                        }
-                      >
-                        <SelectTrigger
-                          size="sm"
-                          className="entei-module-select"
-                          aria-label={dict.deckFieldLabel}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(decks.includes(format.deck)
-                            ? decks
-                            : [format.deck, ...decks]
-                          )
-                            .filter((deck) => deck !== '')
-                            .map((deck) => (
-                              <SelectItem key={deck} value={deck}>
-                                {deck}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
+                      {(() => {
+                        const isDeckMissing =
+                          decks.length > 0 && !decks.includes(format.deck);
+                        return (
+                          <Select
+                            value={format.deck}
+                            onValueChange={(next) =>
+                              updateFormat(format.id, { deck: next })
+                            }
+                          >
+                            <SelectTrigger
+                              size="sm"
+                              className="entei-module-select"
+                              aria-label={dict.deckFieldLabel}
+                              aria-invalid={isDeckMissing || undefined}
+                              data-invalid={isDeckMissing || undefined}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(decks.includes(format.deck)
+                                ? decks
+                                : [format.deck, ...decks]
+                              )
+                                .filter((deck) => deck !== '')
+                                .map((deck) => (
+                                  <SelectItem key={deck} value={deck}>
+                                    {deck}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -491,6 +502,9 @@ function ProfileModelSelect({
         : [format.model, ...models],
     [models, format.model],
   );
+  const isModelMissing =
+    models.length > 0 && !models.includes(format.model);
+
   return (
     <div className="entei-module-field">
       <div className="entei-module-field-text">
@@ -504,6 +518,8 @@ function ProfileModelSelect({
             size="sm"
             className="entei-module-select"
             aria-label={dict.noteTypeFieldLabel}
+            aria-invalid={isModelMissing || undefined}
+            data-invalid={isModelMissing || undefined}
           >
             <SelectValue />
           </SelectTrigger>
