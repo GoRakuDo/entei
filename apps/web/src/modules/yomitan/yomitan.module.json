@@ -920,13 +920,13 @@
     {
       "section": "backup",
       "label": "Backup",
-      "description": "Backup and restore Yomitan settings.",
+      "description": "Backup and restore Yomitan dictionaries and settings.",
       "rows": [
         {
           "layout": "backup",
           "target": "yomitan",
-          "label": "Settings",
-          "description": "Export and import Yomitan settings and profiles."
+          "label": "Backup",
+          "description": "Import and export installed dictionaries and Yomitan settings."
         }
       ]
     }

@@ -128,8 +128,15 @@ import {
 import {
   exportSettings,
   importSettingsFromJson,
-  resetSettings,
 } from '@/modules/yomitan/settings-backup';
+import {
+  importDictionaryFromPath,
+  invalidateInstalledDictionaries,
+  listInstalledDictionaries,
+  createDictionaryOptionEntry,
+  type DictionaryOptionEntry,
+} from '@/modules/yomitan/dictionary-store';
+import { isTauri } from '@/features/player/tauri-bridge';
 import { toast } from 'sonner';
 import type { Dictionary } from '@i18n/types';
 
@@ -635,6 +642,8 @@ function ModuleLayoutRow({
       <BackupRow
         label={row.label ?? 'Settings'}
         description={row.description}
+        options={options}
+        onOptionsChange={onOptionsChange}
       />
     );
   }
@@ -870,13 +879,38 @@ function ModuleLayoutRow({
 function BackupRow({
   label,
   description,
+  options,
+  onOptionsChange,
 }: {
   label: string;
   description: string | undefined;
+  options: Options;
+  onOptionsChange: (next: Options) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  async function handleImportFile(file: File): Promise<void> {
+  /** Current date as `YYYY-MM-DD`, for the dictionary export filename. */
+  function todayStamp(): string {
+    const now = new Date();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    return `${now.getFullYear()}-${mm}-${dd}`;
+  }
+
+  /** Trigger a browser download of `text` as `filename` (the Export paths). */
+  function downloadText(text: string, filename: string): void {
+    const blob = new Blob([text], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleImportSettingsFile(file: File): Promise<void> {
     try {
       const text = await file.text();
       const profileCount = await importSettingsFromJson(text);
@@ -887,7 +921,7 @@ function BackupRow({
     }
   }
 
-  function handleExport(): void {
+  function handleExportSettings(): void {
     try {
       exportSettings();
       toast.success('Settings exported.');
@@ -896,15 +930,65 @@ function BackupRow({
     }
   }
 
-  function handleReset(): void {
-    if (!window.confirm('Reset all Yomitan settings to defaults? This cannot be undone.')) {
+  /** Import one dictionary archive: a native path picker, then the engine. */
+  async function handleImportDictionary(): Promise<void> {
+    if (!isTauri()) {
+      toast.error('Dictionary import requires the desktop app.');
       return;
     }
-    void resetSettings().then(() => {
-      toast.success('Settings reset to defaults.');
-    }).catch(() => {
-      toast.error('Reset failed.');
-    });
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const picked = await open({
+        multiple: false,
+        directory: false,
+        filters: [
+          { name: 'Dictionary', extensions: ['zip', 'json'] },
+        ],
+      });
+      if (typeof picked !== 'string' || picked.length === 0) return;
+      const record = await importDictionaryFromPath(picked);
+      // Mirror the installed dictionary into the options tree (priority order),
+      // the same contract the Dictionaries list import follows.
+      const optionEntries = readOptionPath(options, 'dictionaries') as
+        DictionaryOptionEntry[] | undefined;
+      const next = writeOptionPath(options, 'dictionaries', [
+        ...(optionEntries ?? []).filter((entry) => entry.name !== record.name),
+        createDictionaryOptionEntry(record.name),
+      ]);
+      onOptionsChange(next);
+      toast.success(`Imported dictionary: ${record.name}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Dictionary import failed.';
+      toast.error(message);
+    }
+  }
+
+  /** Export the installed dictionary list as a portable `.json`. */
+  async function handleExportDictionary(): Promise<void> {
+    if (!isTauri()) {
+      toast.error('Dictionary export requires the desktop app.');
+      return;
+    }
+    try {
+      // Bypass the cache so the file reflects any import made this session.
+      invalidateInstalledDictionaries();
+      const installed = await listInstalledDictionaries();
+      const payload = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        dictionaries: installed,
+      };
+      downloadText(
+        JSON.stringify(payload, null, 2),
+        `yomitan-dictionaries-${todayStamp()}.json`,
+      );
+      toast.success(
+        `Exported ${installed.length} dictionar${installed.length === 1 ? 'y' : 'ies'}.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Dictionary export failed.';
+      toast.error(message);
+    }
   }
 
   return (
@@ -925,21 +1009,22 @@ function BackupRow({
           tabIndex={-1}
           onChange={(e) => {
             const file = e.target.files?.[0];
-            if (file !== undefined) void handleImportFile(file);
+            if (file !== undefined) void handleImportSettingsFile(file);
             // Reset so re-selecting the same file fires change again.
             e.target.value = '';
           }}
         />
-        <SettingsButton
-          onClick={() => fileInputRef.current?.click()}
-        >
-          Import Settings
+        <SettingsButton onClick={() => void handleImportDictionary()}>
+          Import Kamus
         </SettingsButton>
-        <SettingsButton onClick={handleExport}>
-          Export Settings
+        <SettingsButton onClick={() => void handleExportDictionary()}>
+          Export Kamus
         </SettingsButton>
-        <SettingsButton onClick={handleReset}>
-          Reset Settings
+        <SettingsButton onClick={() => fileInputRef.current?.click()}>
+          Import Setting
+        </SettingsButton>
+        <SettingsButton onClick={handleExportSettings}>
+          Export Setting
         </SettingsButton>
       </div>
     </div>
