@@ -1920,11 +1920,15 @@ body[data-page='settings'] .entei-main {
   outline-offset: 2px;
 }
 
+.entei-anki-profile-card[data-expanded] .entei-anki-profile-header {
+  padding-top: var(--entei-space-24);
+}
+
 .entei-anki-profile-body {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-12);
-  padding: 0 var(--entei-space-24) var(--entei-space-16);
+  padding: 0 var(--entei-space-24) var(--entei-space-24);
 }
 
 .entei-anki-profile-icon-option {
@@ -2065,7 +2069,7 @@ body[data-page='settings'] .entei-main {
   min-width: 15rem !important;
   max-width: 15rem !important;
   box-sizing: border-box;
-  padding: 0;
+  padding: var(--entei-space-4);
   border: 1px solid oklch(100% 0 0deg / 0.08);
   border-radius: var(--entei-radius-md);
   background: var(--entei-surface);
@@ -2075,15 +2079,19 @@ body[data-page='settings'] .entei-main {
 .entei-anki-marker-list {
   max-height: 18rem;
   overflow-y: auto;
-  padding: var(--entei-space-4) 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-2);
 }
 
 .entei-anki-marker-item {
   display: block;
   width: 100%;
   box-sizing: border-box;
-  padding: var(--entei-space-8) var(--entei-space-16);
+  padding: var(--entei-space-8) var(--entei-space-12);
   border: none;
+  border-radius: var(--entei-radius-sm);
   background: transparent;
   color: var(--entei-text-secondary);
   text-align: left;
@@ -2091,16 +2099,14 @@ body[data-page='settings'] .entei-main {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: background-color 100ms ease;
+  transition: background-color 100ms ease, color 100ms ease;
 }
 
-.entei-anki-marker-item:hover {
-  background: var(--entei-btn-color);
-}
-
+.entei-anki-marker-item:hover,
 .entei-anki-marker-item:focus-visible {
-  outline: 2px solid var(--entei-focus-ring);
-  outline-offset: -2px;
+  background: var(--entei-btn-color);
+  color: var(--entei-status-locked);
+  outline: none;
 }
 
 .entei-anki-marker-code {
