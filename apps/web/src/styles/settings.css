@@ -1899,7 +1899,7 @@ body[data-page='settings'] .entei-main {
   justify-content: space-between;
   gap: var(--entei-space-8);
   width: 100%;
-  padding: var(--entei-space-12) var(--entei-space-16);
+  padding: var(--entei-space-12) var(--entei-space-24);
   border: none;
   background: none;
   color: var(--entei-text-primary);
@@ -1924,7 +1924,7 @@ body[data-page='settings'] .entei-main {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-12);
-  padding: 0 var(--entei-space-16) var(--entei-space-16);
+  padding: 0 var(--entei-space-24) var(--entei-space-16);
 }
 
 .entei-anki-profile-icon-option {
@@ -1994,11 +1994,6 @@ body[data-page='settings'] .entei-main {
 /* Remove button sits at the bottom of the expanded profile body. */
 .entei-anki-profile-remove {
   margin-top: var(--entei-space-4);
-  color: oklch(70% 0.19 25deg);
-}
-
-.entei-anki-profile-remove:hover {
-  color: oklch(78% 0.19 25deg);
 }
 
 /* Unified marker Combobox: single bordered container with input + chevron. */
@@ -2024,7 +2019,7 @@ body[data-page='settings'] .entei-main {
   border: none;
   background: transparent;
   outline: none;
-  color: var(--entei-text-primary);
+  color: var(--entei-text-secondary);
   font-family: ui-monospace, 'SFMono-Regular', 'Menlo', var(--entei-font-system), monospace;
   font-size: 0.8125rem;
   padding: 0;
@@ -2090,7 +2085,7 @@ body[data-page='settings'] .entei-main {
   padding: var(--entei-space-8) var(--entei-space-16);
   border: none;
   background: transparent;
-  color: var(--entei-text-primary);
+  color: var(--entei-text-secondary);
   text-align: left;
   cursor: pointer;
   overflow: hidden;
