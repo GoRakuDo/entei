@@ -2096,15 +2096,15 @@ body[data-page='settings'] .entei-main {
 }
 
 .entei-anki-marker-item {
-  /* Flex item inside the column list: never let the flex algorithm shrink a
-     row below its content, or `overflow: hidden` below clips the label text. */
+  /* Matches standard [data-slot='select-item'] sizing and padding (32px height, 6px 8px padding) */
   flex: 0 0 auto;
-  min-height: var(--entei-touch-min);
+  min-height: 2rem;
+  height: 2rem;
   display: flex;
   align-items: center;
   width: 100%;
   box-sizing: border-box;
-  padding: var(--entei-space-8) var(--entei-space-12);
+  padding: 6px var(--entei-space-8);
   border: none;
   border-radius: var(--entei-radius-sm);
   background: transparent;
@@ -2119,13 +2119,17 @@ body[data-page='settings'] .entei-main {
 
 .entei-anki-marker-item:hover,
 .entei-anki-marker-item:focus-visible {
-  background: var(--entei-btn-color);
-  color: var(--entei-status-locked);
-  outline: none;
+  background: var(--entei-btn-color) !important;
+  color: var(--entei-status-locked) !important;
+  outline: none !important;
 }
 
 .entei-anki-marker-code {
-  font-family: ui-monospace, 'SFMono-Regular', 'Menlo', var(--entei-font-system), monospace;
-  font-size: 0.8125rem;
-  line-height: 1;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  line-height: 1.25;
 }
