@@ -2096,7 +2096,12 @@ body[data-page='settings'] .entei-main {
 }
 
 .entei-anki-marker-item {
-  display: block;
+  /* Flex item inside the column list: never let the flex algorithm shrink a
+     row below its content, or `overflow: hidden` below clips the label text. */
+  flex: 0 0 auto;
+  min-height: var(--entei-touch-min);
+  display: flex;
+  align-items: center;
   width: 100%;
   box-sizing: border-box;
   padding: var(--entei-space-8) var(--entei-space-12);
@@ -2122,5 +2127,5 @@ body[data-page='settings'] .entei-main {
 .entei-anki-marker-code {
   font-family: ui-monospace, 'SFMono-Regular', 'Menlo', var(--entei-font-system), monospace;
   font-size: 0.8125rem;
-  line-height: 1.4;
+  line-height: 1;
 }

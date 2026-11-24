@@ -627,6 +627,7 @@ function MarkerCombobox({
         </div>
       </PopoverAnchor>
       <PopoverContent
+        side="bottom"
         align="start"
         sideOffset={4}
         className="entei-anki-marker-popover"
