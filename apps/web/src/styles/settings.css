@@ -1921,14 +1921,15 @@ body[data-page='settings'] .entei-main {
 }
 
 .entei-anki-profile-card[data-expanded] .entei-anki-profile-header {
-  padding-top: var(--entei-space-24);
+  padding: var(--entei-space-16) var(--entei-space-24);
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.08);
 }
 
 .entei-anki-profile-body {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-12);
-  padding: 0 var(--entei-space-24) var(--entei-space-24);
+  padding: var(--entei-space-24);
 }
 
 .entei-anki-profile-icon-option {
@@ -1998,6 +1999,15 @@ body[data-page='settings'] .entei-main {
 /* Remove button sits at the bottom of the expanded profile body. */
 .entei-anki-profile-remove {
   margin-top: var(--entei-space-4);
+  font-size: 1rem;
+  gap: var(--entei-space-12);
+}
+
+.entei-anki-profile-remove svg {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  stroke-width: 2.25;
 }
 
 /* Unified marker Combobox: single bordered container with input + chevron. */
