@@ -99,7 +99,8 @@ export type EnteiModuleRowLayout =
   | 'selects'
   | 'checkboxes'
   | 'numbers'
-  | 'link';
+  | 'link'
+  | 'backup';
 
 /**
  * One choice of a `selects` row's control.
@@ -395,6 +396,7 @@ const ROW_LAYOUTS: readonly EnteiModuleRowLayout[] = [
   'checkboxes',
   'numbers',
   'link',
+  'backup',
 ];
 
 /**
@@ -559,6 +561,21 @@ export function normalizeSectionLayouts(
         rows.push(linkRow);
         continue;
       }
+      if (layout === 'backup') {
+        /* A `backup` row draws the Export / Import / Reset action group for the
+           module's settings. It edits NO field and reads NO source; `target` names
+           the owning module id so the renderer can dispatch backup operations
+           against the right module. A backup row with no target is dropped. */
+        const target = optionalId(row.target);
+        if (target === undefined) continue;
+        const backupRow: EnteiModuleRowBinding = { layout, target };
+        for (const key of ['label', 'description'] as const) {
+          const value = optionalId(row[key]);
+          if (value !== undefined) backupRow[key] = value;
+        }
+        rows.push(backupRow);
+        continue;
+      }
       if (field === undefined && source === undefined) continue;
       if (layout !== 'field' && source === undefined) continue;
       const binding: EnteiModuleRowBinding = { layout };
@@ -701,8 +718,9 @@ function orderYomitanSections(
   return reordered;
 }
 
-const YOMITAN_SETTINGS_SCHEMA: readonly SettingSectionDescriptor[] =
-  orderYomitanSections(yomitanSettingsTree);
+const YOMITAN_SETTINGS_SCHEMA: readonly SettingSectionDescriptor[] = [
+  ...orderYomitanSections(yomitanSettingsTree),
+];
 
 /** Canonical registration order for built-in modules. */
 const CORE_ORDER: readonly string[] = [

@@ -737,7 +737,7 @@ function createHostProfileOptions(): ProfileOptions {
  * What the host hands out when nothing is stored: a fresh install must start on
  * THIS host's two cards, not on Yomitan's extension-shaped pair.
  */
-function createHostDefaultOptions(): Options {
+export function createHostDefaultOptions(): Options {
   const defaults = createDefaultOptions();
   return {
     ...defaults,

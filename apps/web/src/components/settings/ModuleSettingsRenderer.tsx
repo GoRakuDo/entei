@@ -125,6 +125,12 @@ import {
   readYomitanOptions,
   writeOptionPath,
 } from '@/modules/yomitan/yomitan-preferences';
+import {
+  exportSettings,
+  importSettingsFromJson,
+  resetSettings,
+} from '@/modules/yomitan/settings-backup';
+import { toast } from 'sonner';
 import type { Dictionary } from '@i18n/types';
 
 /**
@@ -830,6 +836,21 @@ function ModuleLayoutRow({
     );
   }
 
+  /* SETTINGS BACKUP ROW: Export / Import / Reset action group. This row owns no
+   field and reads no source — it is a self-contained action card driven by the
+   `settings-backup` module. The three buttons cover the full backup lifecycle:
+   Export writes a portable .json, Import reads one (upstream extension format
+   or this app's own), Reset restores host defaults. Each dispatches
+   `entei:yomitan-options-updated` on success so the renderer re-hydrates. */
+  if (row.layout === 'backup') {
+    return (
+      <BackupRow
+        label={row.label ?? 'Settings'}
+        description={row.description}
+      />
+    );
+  }
+
   return (
     <BoundFieldRow
       row={row}
@@ -840,6 +861,87 @@ function ModuleLayoutRow({
       labels={labels}
       onChange={onChange}
     />
+  );
+}
+
+/* --- Settings backup action card --- */
+
+function BackupRow({
+  label,
+  description,
+}: {
+  label: string;
+  description: string | undefined;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleImportFile(file: File): Promise<void> {
+    try {
+      const text = await file.text();
+      const profileCount = await importSettingsFromJson(text);
+      toast.success(`Imported ${profileCount} profile${profileCount === 1 ? '' : 's'}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Import failed.';
+      toast.error(message);
+    }
+  }
+
+  function handleExport(): void {
+    try {
+      exportSettings();
+      toast.success('Settings exported.');
+    } catch {
+      toast.error('Export failed.');
+    }
+  }
+
+  function handleReset(): void {
+    if (!window.confirm('Reset all Yomitan settings to defaults? This cannot be undone.')) {
+      return;
+    }
+    void resetSettings().then(() => {
+      toast.success('Settings reset to defaults.');
+    }).catch(() => {
+      toast.error('Reset failed.');
+    });
+  }
+
+  return (
+    <div className="entei-module-field" data-layout="backup">
+      <div className="entei-module-field-text">
+        <span className="entei-module-field-label">{label}</span>
+        {description !== undefined && (
+          <span className="entei-module-field-description">{description}</span>
+        )}
+      </div>
+      <div className="entei-module-backup-actions">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,application/json"
+          className="entei-module-backup-file-input"
+          aria-hidden="true"
+          tabIndex={-1}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file !== undefined) void handleImportFile(file);
+            // Reset so re-selecting the same file fires change again.
+            e.target.value = '';
+          }}
+        />
+        <SettingsButton
+          onClick={() => fileInputRef.current?.click()}
+        >
+          Import Settings
+        </SettingsButton>
+        <SettingsButton onClick={handleExport}>
+          Export Settings
+        </SettingsButton>
+        <SettingsButton onClick={handleReset}>
+          Reset Settings
+        </SettingsButton>
+      </div>
+    </div>
   );
 }
 

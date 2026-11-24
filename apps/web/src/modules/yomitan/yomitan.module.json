@@ -915,6 +915,21 @@
       "section": "accessibility",
       "rows": [],
       "hidden": true
+    },
+
+    {
+      "section": "backup",
+      "label": "Backup",
+      "description": "Backup and restore Yomitan settings.",
+      "rows": [
+        {
+          "layout": "backup",
+          "target": "yomitan",
+          "label": "Settings",
+          "description": "Export and import Yomitan settings and profiles."
+        }
+      ]
     }
+
   ]
 }

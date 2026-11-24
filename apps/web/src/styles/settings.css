@@ -932,6 +932,24 @@ body[data-page='settings'] .entei-main {
   margin-top: var(--entei-space-8);
 }
 
+/* --------------------------------------------------------------------------
+   SETTINGS BACKUP ACTIONS — Export / Import / Reset button group.
+   The three buttons sit in a horizontal row on desktop and wrap on narrow
+   screens. The hidden file input is visually removed but stays in the DOM so
+   the Import button can call `.click()` on it.
+   Spacing tokens only (#1641); OKLCH only (#1621); no negative margins (#2471).
+   -------------------------------------------------------------------------- */
+.entei-module-backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--entei-space-8);
+}
+
+.entei-module-backup-file-input {
+  display: none;
+}
+
 /* ==========================================================================
    MODULE LIST MANAGER (the standard installed-item layout)
    ==========================================================================
