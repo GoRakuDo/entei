@@ -624,6 +624,21 @@ function ModuleLayoutRow({
       </div>
     );
   }
+  /* SETTINGS BACKUP ROW: Export / Import / Reset action group. This row owns no
+   field and reads no source — it is a self-contained action card driven by the
+   `settings-backup` module. The three buttons cover the full backup lifecycle:
+   Export writes a portable .json, Import reads one (upstream extension format
+   or this app's own), Reset restores host defaults. Each dispatches
+   `entei:yomitan-options-updated` on success so the renderer re-hydrates. */
+  if (row.layout === 'backup') {
+    return (
+      <BackupRow
+        label={row.label ?? 'Settings'}
+        description={row.description}
+      />
+    );
+  }
+
 
   /* SEVERAL CHECKBOXES, ONE ROW: upstream Yomitan's grouped booleans ("Pitch accent
      display styles" is a Downstep notation, a Downstep position and a Graph checkbox
@@ -836,20 +851,6 @@ function ModuleLayoutRow({
     );
   }
 
-  /* SETTINGS BACKUP ROW: Export / Import / Reset action group. This row owns no
-   field and reads no source — it is a self-contained action card driven by the
-   `settings-backup` module. The three buttons cover the full backup lifecycle:
-   Export writes a portable .json, Import reads one (upstream extension format
-   or this app's own), Reset restores host defaults. Each dispatches
-   `entei:yomitan-options-updated` on success so the renderer re-hydrates. */
-  if (row.layout === 'backup') {
-    return (
-      <BackupRow
-        label={row.label ?? 'Settings'}
-        description={row.description}
-      />
-    );
-  }
 
   return (
     <BoundFieldRow
