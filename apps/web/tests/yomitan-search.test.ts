@@ -629,6 +629,63 @@ describe('clipboard-monitor — what is worth a lookup', () => {
   });
 });
 
+describe('clipboard-monitor — custom maxLength', () => {
+  it('truncateSearchText: custom maxLength caps the text at that length', () => {
+    expect(truncateSearchText('あ'.repeat(20), 5)).toBe('あ'.repeat(5));
+    // Shorter than the cap is left alone.
+    expect(truncateSearchText('あ'.repeat(3), 5)).toBe('あ'.repeat(3));
+  });
+
+  it('truncateSearchText: custom maxLength never cuts a surrogate pair in half', () => {
+    // 4 chars then 🍣 (2 UTF-16 units) — maxLength 5 would cut between them.
+    const text = 'あ'.repeat(4) + '🍣';
+    const rounded = truncateSearchText(text, 5);
+    expect(rounded).toBe('あ'.repeat(4));
+    expect(/[\ud800-\udbff](?![\udc00-\udfff])/.test(rounded)).toBe(false);
+  });
+
+  it('truncateSearchText: default maxLength is MAXIMUM_SEARCH_LENGTH', () => {
+    expect(truncateSearchText('あ'.repeat(MAXIMUM_SEARCH_LENGTH + 5))).toBe(
+      'あ'.repeat(MAXIMUM_SEARCH_LENGTH),
+    );
+  });
+
+  it('normalizeClipboardText: custom maxLength is applied after normalization', () => {
+    expect(normalizeClipboardText('  ああああああ', 3)).toBe('あああ');
+  });
+
+  it('normalizeClipboardText: default maxLength is MAXIMUM_SEARCH_LENGTH', () => {
+    expect(normalizeClipboardText('あ'.repeat(MAXIMUM_SEARCH_LENGTH + 5))).toBe(
+      'あ'.repeat(MAXIMUM_SEARCH_LENGTH),
+    );
+  });
+
+  it('classifyClipboardSample: custom maxLength truncates the query', () => {
+    const pasted = 'あ'.repeat(20);
+    const decision = classifyClipboardSample('犬', pasted, 5);
+    expect(decision).toEqual({ kind: 'search', query: 'あ'.repeat(5) });
+  });
+
+  it('classifyClipboardSample: custom maxLength applies to the stored baseline too', () => {
+    // The caller stores what THIS function returned, so the same maxLength must
+    // produce an idle result on the next poll.
+    const pasted = '猫'.repeat(20);
+    const decision = classifyClipboardSample('犬', pasted, 5);
+    expect(decision.kind).toBe('search');
+    const stored = decision.kind === 'search' ? decision.query : null;
+    expect(classifyClipboardSample(stored, pasted, 5)).toEqual({ kind: 'idle' });
+  });
+
+  it('classifyClipboardSample: default maxLength is MAXIMUM_SEARCH_LENGTH', () => {
+    const pasted = `${'あ'.repeat(MAXIMUM_SEARCH_LENGTH)}末尾`;
+    const decision = classifyClipboardSample('犬', pasted);
+    expect(decision).toEqual({
+      kind: 'search',
+      query: 'あ'.repeat(MAXIMUM_SEARCH_LENGTH),
+    });
+  });
+});
+
 describe('clipboard-monitor — when a sample is taken', () => {
   it('polls, because neither platform announces a clipboard change', () => {
     /* Copying in ANOTHER app is the whole point, and the page has no focus while

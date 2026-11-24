@@ -603,9 +603,9 @@ CREATE TABLE IF NOT EXISTS kv_store (
 - **term / kanji 同時描画時の index 衝突防止**: 現状は排他描画だが、将来の同時描画時は結合後のリストに対して1回のみ採番する設計が必要。
 - **QueryParser 言語属性のプロファイル追従**: `#query-parser-content` の `lang="ja"` は現在固定。多言語辞書拡張時は `profile.general.language` と動的同期することが望ましい。
 - **QueryParser 単語クリック時の履歴対称性**: 単語クリック時は検索ボックスの全文を保持したままカードを切り替える仕様。ブラウザBack時の `full` 復元との挙動整合に留意する。
-- **Search Window セクションの再編**: ブラウザ拡張用の不要な8項目を非表示化し、`general.stickySearchHeader` / `general.enableWanakana` / `clipboard.enableSearchPageMonitor` を集約。見出し説明文はマニフェストから上書き対応。
+- **Search Window セクションの再編**: ブラウザ拡張用の不要な8項目を非表示化し、`general.stickySearchHeader` / `general.enableWanakana` / `clipboard.enableSearchPageMonitor` / `clipboard.maximumSearchLength` を集約（Clipboard カード自体は非表示化）。見出し説明文はマニフェストから上書き対応。
 - **Sticky search header のオフセット設計**: デスクトップでは TopBar ピルの高さ、モバイルではモバイルバーとセーフエリアを考慮した sticky `top` オフセットを適用。
-- **クリップボード自動監視（Clipboard Monitor）**: `tauri-plugin-modules` に Windows（`arboard`）および Android（JNI `ClipboardManager`）両対応の `modules_clipboard_read_text` を追加。検索ページ（`/search/`）ではページ内コピーの自己再検索ループ防止、日本語文字含有判定（`[\u3040-\u30ff\u4e00-\u9fff]`）、および 1,000 文字上限（`maximumSearchLength`）切り詰めを適用。ポーリング時のトレースログ肥大化を防ぐため内部直接呼び出しで稼働。
+- **クリップボード自動監視（Clipboard Monitor）**: `tauri-plugin-modules` に Windows（`arboard`）および Android（JNI `ClipboardManager`）両対応の `modules_clipboard_read_text` を追加。検索ページ（`/search/`）ではページ内コピーの自己再検索ループ防止、日本語文字含有判定（`[\u3040-\u30ff\u4e00-\u9fff]`）、および `maximumSearchLength`（既定 1,000 文字上限）切り詰めを適用。ポーリング時のトレースログ肥大化を防ぐため内部直接呼び出しで稼働。
 - **辞書エントリ内リンク（see: 法人 等）の検索ボックス連動**: 辞書カード内の `.gloss-link`（`LinkElement`）クリック時に、`DisplayContentManager` の `setContent` 経由で検索ボックス（`text`）を更新し、即座に単語検索（`search(mode, query, 'push')`）を実行して履歴スタックに登録。中クリック時の `auxclick` 誤遷移防止も完備。
 - **デスクトップ TopBar ピルのグローバル自動非表示（Auto-Hide）**: `/search/` のみならず、非Home・非Playerの全デスクトップルート（`/settings/`, `/profile/` 等）へ適用。下スクロール（>96px）で即非表示。途中の上スクロールでは勝手に出現せず、完全に画面の真上（最上部 ≤24px）に戻った時、または上端 0〜80px 領域での 750ms ドウェル出現（またはフォーカス時即時出現）の2系統のみに制限。48px の伸縮による scroll anchoring 補正を吸収する 72px の不感帯（ヒステリシス: 24px〜96px）により、境界付近での発振・痙攣ループを完全に防止。
 

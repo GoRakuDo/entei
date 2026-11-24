@@ -48,6 +48,7 @@ import { useEffect, useRef } from 'react';
 import { readClipboardTextDirect } from '@/features/player/tauri-bridge';
 import {
   CLIPBOARD_POLL_INTERVAL_MS,
+  MAXIMUM_SEARCH_LENGTH,
   classifyClipboardSample,
   normalizeClipboardText,
 } from '@/modules/yomitan/search/clipboard-monitor';
@@ -64,6 +65,14 @@ export interface ClipboardMonitorOptions {
    * to place) and not a navigation (`replace`, never `push`).
    */
   readonly onSearch: (query: string) => void;
+  /**
+   * Maximum clipboard text length to allow through as a query.
+   *
+   * Defaults to [`MAXIMUM_SEARCH_LENGTH`] when omitted. Passed to the pure
+   * decision functions so the user's `clipboard.maximumSearchLength` setting is
+   * respected at every sample.
+   */
+  readonly maxLength?: number;
 }
 
 /**
@@ -90,6 +99,7 @@ function copiedText(event: ClipboardEvent): string | null {
 export function useClipboardMonitor({
   enabled,
   onSearch,
+  maxLength = MAXIMUM_SEARCH_LENGTH,
 }: ClipboardMonitorOptions): void {
   /**
    * The last sample this page ACCEPTED, in `normalizeClipboardText` form.
@@ -109,6 +119,18 @@ export function useClipboardMonitor({
   useEffect(() => {
     onSearchRef.current = onSearch;
   }, [onSearch]);
+  /**
+   * The latest `maxLength`.
+   *
+   * A ref, mirroring `onSearchRef`: the effect does NOT list `maxLength` as a
+   * dependency, so a settings change to the cap does not restart the monitor and
+   * re-prime the baseline. Every read of the clipboard passes
+   * `maxLengthRef.current` so the pure functions always use the up-to-date value.
+   */
+  const maxLengthRef = useRef(maxLength);
+  useEffect(() => {
+    maxLengthRef.current = maxLength;
+  }, [maxLength]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -141,7 +163,7 @@ export function useClipboardMonitor({
     const primeBaseline = async (): Promise<void> => {
       const current = await read();
       if (disposed || current === undefined) return;
-      previousRef.current = normalizeClipboardText(current);
+      previousRef.current = normalizeClipboardText(current, maxLengthRef.current);
     };
 
     /** One sample: read, decide, and act on anything that is news. */
@@ -149,12 +171,16 @@ export function useClipboardMonitor({
       if (disposed || sampling) return;
       const current = await read();
       if (disposed || current === undefined) return;
-      const decision = classifyClipboardSample(previousRef.current, current);
+      const decision = classifyClipboardSample(
+        previousRef.current,
+        current,
+        maxLengthRef.current,
+      );
       if (decision.kind === 'idle') return;
       /* Remembered in the SAME shortened form the decision was made on, or a value
          longer than the cap would differ from itself on every poll and re-run the
          same lookup twice a second. */
-      previousRef.current = normalizeClipboardText(current);
+      previousRef.current = normalizeClipboardText(current, maxLengthRef.current);
       if (decision.kind === 'baseline') return;
       onSearchRef.current(decision.query);
     };
@@ -163,7 +189,7 @@ export function useClipboardMonitor({
     const onCopy = (event: ClipboardEvent): void => {
       const copied = copiedText(event);
       if (copied === null) return;
-      previousRef.current = normalizeClipboardText(copied);
+      previousRef.current = normalizeClipboardText(copied, maxLengthRef.current);
     };
 
     void primeBaseline();

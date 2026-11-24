@@ -107,7 +107,10 @@ export function isTextLookupWorthy(text: string): boolean {
 }
 
 /**
- * [`MAXIMUM_SEARCH_LENGTH`] UTF-16 units of `text`, never half a character.
+ * Up to `maxLength` UTF-16 units of `text`, never half a character.
+ *
+ * Defaults to [`MAXIMUM_SEARCH_LENGTH`] so existing callers are unaffected; the
+ * search page passes the user's `clipboard.maximumSearchLength` setting through.
  *
  * Counting units rather than code points keeps this O(1) however large the
  * clipboard is (a copied log file must not cost an array of its characters once a
@@ -115,9 +118,12 @@ export function isTextLookupWorthy(text: string): boolean {
  * of an emoji's surrogate pair to the engine — a lone surrogate that JSON cannot
  * carry, so the lookup would fail instead of showing nothing. That half is dropped.
  */
-export function truncateSearchText(text: string): string {
-  if (text.length <= MAXIMUM_SEARCH_LENGTH) return text;
-  const clipped = text.slice(0, MAXIMUM_SEARCH_LENGTH);
+export function truncateSearchText(
+  text: string,
+  maxLength: number = MAXIMUM_SEARCH_LENGTH,
+): string {
+  if (text.length <= maxLength) return text;
+  const clipped = text.slice(0, maxLength);
   const lastUnit = clipped.charCodeAt(clipped.length - 1);
   return lastUnit >= 0xd800 && lastUnit <= 0xdbff ? clipped.slice(0, -1) : clipped;
 }
@@ -129,9 +135,15 @@ export function truncateSearchText(text: string): string {
  * storing the raw clipboard text while searching the shortened one would make a
  * long value differ from itself on every poll, i.e. re-run the same lookup once
  * a second forever.
+ *
+ * `maxLength` defaults to [`MAXIMUM_SEARCH_LENGTH`] and can be overridden to match
+ * the user's `clipboard.maximumSearchLength` setting.
  */
-export function normalizeClipboardText(raw: string | null | undefined): string {
-  return truncateSearchText(normalizeSearchQuery(raw));
+export function normalizeClipboardText(
+  raw: string | null | undefined,
+  maxLength: number = MAXIMUM_SEARCH_LENGTH,
+): string {
+  return truncateSearchText(normalizeSearchQuery(raw), maxLength);
 }
 
 /**
@@ -152,14 +164,19 @@ export function normalizeClipboardText(raw: string | null | undefined): string {
  * already on the clipboard when the page opened is remembered (and skipped) even
  * when it is a URL — which is what makes the first Japanese copy after that a
  * search instead of a second baseline.
+ *
+ * `maxLength` defaults to [`MAXIMUM_SEARCH_LENGTH`] and is passed through to
+ * [`normalizeClipboardText`] so the user's `clipboard.maximumSearchLength`
+ * setting is respected at every layer of the pipeline.
  */
 export function classifyClipboardSample(
   previous: string | null,
   current: string | null,
+  maxLength: number = MAXIMUM_SEARCH_LENGTH,
 ): ClipboardSample {
   // Unreadable (a locked clipboard, a denied permission, a background app).
   if (current === null) return { kind: 'idle' };
-  const query = normalizeClipboardText(current);
+  const query = normalizeClipboardText(current, maxLength);
   // First readable value: the baseline the next one is compared against.
   if (previous === null) return { kind: 'baseline' };
   // A clipboard that was just cleared, or holds only whitespace, is not a query.

@@ -110,6 +110,7 @@ import {
   type SearchMode,
   type SearchOutcome,
 } from '@/modules/yomitan/search/search-query';
+import { MAXIMUM_SEARCH_LENGTH } from '@/modules/yomitan/search/clipboard-monitor';
 import { useClipboardMonitor } from '@/modules/yomitan/search/use-clipboard-monitor';
 import { checkTermsForDuplicates } from '@/modules/yomitan/search/anki-duplicate-status';
 import {
@@ -208,6 +209,12 @@ interface SearchOptions {
    * page is the surface that finally acts on it.
    */
   clipboardMonitor: boolean;
+  /**
+   * Maximum clipboard text length to allow through as a query
+   * (`clipboard.maximumSearchLength`). Falls back to `MAXIMUM_SEARCH_LENGTH`
+   * when the setting is absent or not a finite number.
+   */
+  clipboardMaxLength: number;
   /** `audio.sources` — the speaker buttons' playback sources, already shaped. */
   audioSources: AudioSourceInfo[];
   /** `audio.volume`, 0–100. */
@@ -222,6 +229,9 @@ const STICKY_HEADER_DEFAULT = false;
 
 /** Upstream's own default for `clipboard.enableSearchPageMonitor` (off). */
 const CLIPBOARD_MONITOR_DEFAULT = false;
+
+/** Fallback for `clipboard.maximumSearchLength` when the setting is absent or invalid. */
+const CLIPBOARD_MAX_LENGTH_DEFAULT = MAXIMUM_SEARCH_LENGTH;
 
 /** Upstream's own default for `audio.volume` (100). */
 const AUDIO_VOLUME_DEFAULT = 100;
@@ -245,6 +255,11 @@ function readSearchOptions(): SearchOptions {
       stickyHeader: profile.general.stickySearchHeader,
       queryParser: readQueryParserSettings(profile),
       clipboardMonitor: profile.clipboard.enableSearchPageMonitor,
+      clipboardMaxLength:
+        typeof profile.clipboard?.maximumSearchLength === 'number' &&
+        Number.isFinite(profile.clipboard.maximumSearchLength)
+          ? profile.clipboard.maximumSearchLength
+          : CLIPBOARD_MAX_LENGTH_DEFAULT,
       audioSources: toAudioSourceInfos(profile.audio?.sources),
       audioVolume:
         typeof profile.audio?.volume === 'number' && Number.isFinite(profile.audio.volume)
@@ -259,6 +274,7 @@ function readSearchOptions(): SearchOptions {
       stickyHeader: STICKY_HEADER_DEFAULT,
       queryParser: DEFAULT_QUERY_PARSER_SETTINGS,
       clipboardMonitor: CLIPBOARD_MONITOR_DEFAULT,
+      clipboardMaxLength: CLIPBOARD_MAX_LENGTH_DEFAULT,
       audioSources: [],
       audioVolume: AUDIO_VOLUME_DEFAULT,
     };
@@ -320,6 +336,7 @@ export function YomitanSearchApp() {
     stickyHeader: STICKY_HEADER_DEFAULT,
     queryParser: DEFAULT_QUERY_PARSER_SETTINGS,
     clipboardMonitor: CLIPBOARD_MONITOR_DEFAULT,
+    clipboardMaxLength: CLIPBOARD_MAX_LENGTH_DEFAULT,
     audioSources: [],
     audioVolume: AUDIO_VOLUME_DEFAULT,
   });
@@ -737,6 +754,7 @@ export function YomitanSearchApp() {
   useClipboardMonitor({
     enabled: options.clipboardMonitor,
     onSearch: onClipboardSearch,
+    maxLength: options.clipboardMaxLength,
   });
 
   /* ------------------------------------------------------------------------
