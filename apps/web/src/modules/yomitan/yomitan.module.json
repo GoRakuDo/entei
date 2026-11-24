@@ -712,8 +712,19 @@
           "field": "clipboard.enableSearchPageMonitor",
           "label": "Clipboard monitor",
           "description": "The query on the search page will be automatically updated with text in the clipboard."
+        },
+        {
+          "layout": "field",
+          "field": "clipboard.maximumSearchLength",
+          "label": "Maximum search length",
+          "description": "The maximum number of characters that will be read from the clipboard."
         }
       ]
+    },
+    {
+      "section": "clipboard",
+      "rows": [],
+      "hidden": true
     },
     {
       "section": "parsing",

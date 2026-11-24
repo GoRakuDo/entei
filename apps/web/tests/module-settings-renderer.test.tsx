@@ -165,15 +165,16 @@ describe('ModuleSettingsRenderer — sections', () => {
   it('renders one collapsible section per manifest entry', () => {
     renderSettings();
     const toggles = screen.getAllByRole('button', { expanded: false });
-    // sentence-parsing is hidden via sectionLayouts (migrated to Parsing); 18 tree sections - 1 hidden = 17
-    expect(toggles).toHaveLength(yomitanSettingsTree.length - 4);
+    // Five sections are hidden via sectionLayouts (sentence-parsing, inputs,
+    // translation, accessibility, clipboard): 18 tree sections - 5 hidden = 13
+    expect(toggles).toHaveLength(yomitanSettingsTree.length - 5);
   });
 
   it('gives every section header a leading icon when the manifest asks for it', () => {
     const { container } = renderSettings(true);
     const headers = container.querySelectorAll('.entei-module-section-toggle');
-    // sentence-parsing is hidden via sectionLayouts; 18 tree sections - 1 hidden = 17
-    expect(headers.length).toBe(yomitanSettingsTree.length - 4);
+    // Five sections are hidden via sectionLayouts; 18 tree sections - 5 = 13
+    expect(headers.length).toBe(yomitanSettingsTree.length - 5);
     for (const header of headers) {
       const icon = header.querySelector('.entei-module-section-icon');
       expect(icon).not.toBeNull();
@@ -1167,14 +1168,16 @@ describe('ModuleSettingsRenderer — the shipped Search Window layout', () => {
    * Upstream's Search Window section is the EXTENSION's own chrome: the standalone
    * window's Width / Height / Left / Top and its window type and state
    * (`popupWindow.*`), none of which exists in a page of this app. The manifest
-   * therefore lays the section out itself and shows only the three switches that
-   * DO mean something here — the pinned search header, the romaji → kana
-   * conversion of the search field, and the clipboard monitor.
+   * therefore lays the section out itself and shows only the rows that DO mean
+   * something here — the pinned search header, the romaji → kana conversion of the
+   * search field, the clipboard monitor, and the clipboard read length (the
+   * Clipboard card itself is hidden, so its Limits row lives here).
    */
   const SEARCH_WINDOW_LABELS = [
     'Sticky search header',
     'Automatic kana conversion',
     'Clipboard monitor',
+    'Maximum search length',
   ];
 
   /** The extension-only rows that must not survive the layout. */
@@ -1211,7 +1214,7 @@ describe('ModuleSettingsRenderer — the shipped Search Window layout', () => {
     ];
   }
 
-  it('draws the three declared rows once each, with no group walk left', () => {
+  it('draws the declared rows once each, with no group walk left', () => {
     const { container } = renderShipped();
     openSection(/^Toggle section: Search Window$/i);
 
@@ -1222,12 +1225,13 @@ describe('ModuleSettingsRenderer — the shipped Search Window layout', () => {
     for (const label of SEARCH_WINDOW_LABELS) {
       expect(screen.getAllByText(label)).toHaveLength(1);
     }
-    // Three switches and nothing else: no dimension inputs in this section.
+    // Three switches plus the one number row (Maximum search length): no
+    // dimension inputs in this section.
     expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(
       3,
     );
     expect(section?.querySelectorAll('textarea')).toHaveLength(0);
-    expect(section?.querySelectorAll('input[type="number"]')).toHaveLength(0);
+    expect(section?.querySelectorAll('input[type="number"]')).toHaveLength(1);
     /* The section is re-texted by the same layout: upstream heads it with the
        standalone window's geometry, which is exactly what this card does NOT show. */
     expect(
@@ -1248,7 +1252,7 @@ describe('ModuleSettingsRenderer — the shipped Search Window layout', () => {
     expect(searchWindow(container)?.textContent).not.toContain('popupWindow');
   });
 
-  it('declares the three rows in the manifest order', () => {
+  it('declares the four rows in the manifest order', () => {
     const rows = (
       CORE_MODULES.find((module) => module.id === 'yomitan')
         ?.sectionLayouts?.find((layout) => layout.section === 'search-window')?.rows ?? []
@@ -1258,10 +1262,11 @@ describe('ModuleSettingsRenderer — the shipped Search Window layout', () => {
       'general.stickySearchHeader',
       'general.enableWanakana',
       'clipboard.enableSearchPageMonitor',
+      'clipboard.maximumSearchLength',
     ]);
   });
 
-  it('carries the three labels and descriptions upstream does not', () => {
+  it('carries the four labels and descriptions upstream does not', () => {
     const layout = CORE_MODULES.find((module) => module.id === 'yomitan')
       ?.sectionLayouts?.find((entry) => entry.section === 'search-window');
 
@@ -1269,35 +1274,46 @@ describe('ModuleSettingsRenderer — the shipped Search Window layout', () => {
       'Sticky search header',
       'Automatic kana conversion',
       'Clipboard monitor',
+      'Maximum search length',
     ]);
     expect(layout?.rows.map((row) => row.description)).toEqual([
       'Keep the search input header fixed at the top of the search window.',
       'Convert typed romaji to kana (Wanakana).',
       'The query on the search page will be automatically updated with text in the clipboard.',
+      'The maximum number of characters that will be read from the clipboard.',
     ]);
   });
 
-  it('claims the romaji → kana switch, so Parsing and Clipboard lose their copies', () => {
+  it('claims every laid-out row, so no card draws a second copy', () => {
     const { container } = renderShipped();
     openSection(/^Toggle section: Parsing$/i);
-    openSection(/^Toggle section: Clipboard$/i);
     openSection(/^Toggle section: Search Window$/i);
 
-    // The path lives in the tree's Parsing and Search Header groups, and the
-    // clipboard monitor in Clipboard: a card that did NOT claim them would draw
-    // them a second time, so each is on the page exactly once.
+    // The paths live in the tree's Parsing and Search Header groups: a card that
+    // did NOT claim them would draw them a second time, so each is on the page
+    // exactly once. The Clipboard card is hidden (its rows are either dropped or
+    // claimed here), so it never repeats the monitor or the read length.
     expect(screen.getAllByText('Automatic kana conversion')).toHaveLength(1);
     expect(screen.getAllByText('Clipboard monitor')).toHaveLength(1);
+    expect(screen.getAllByText('Maximum search length')).toHaveLength(1);
     expect(
       screen.queryByText('Enable Wanakana (romaji → kana)'),
     ).toBeNull();
     expect(screen.queryByText('Enable search page monitor')).toBeNull();
+    // The Clipboard section is hidden outright: no card, so its dropped rows
+    // (background monitor, auto-search clipboard content) are nowhere on the page.
+    expect(
+      screen.queryByRole('button', { name: /^Toggle section: Clipboard$/i }),
+    ).toBeNull();
+    expect(screen.queryByText('Enable background monitor')).toBeNull();
+    expect(screen.queryByText('Auto-search clipboard content')).toBeNull();
 
     const sections = container.querySelectorAll('.entei-module-section');
     const searchWindow =
       sections[searchWindowIndex()]?.textContent ?? '';
     expect(searchWindow).toContain('Automatic kana conversion');
     expect(searchWindow).toContain('Clipboard monitor');
+    expect(searchWindow).toContain('Maximum search length');
   });
 });
 
