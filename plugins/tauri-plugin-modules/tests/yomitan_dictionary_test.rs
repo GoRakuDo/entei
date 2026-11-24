@@ -867,3 +867,293 @@ fn tag_lookup_is_answered_through_an_index_not_a_table_scan() {
     assert_eq!(tags[0].name, "v1");
     assert_eq!(tags[0].index, 0);
 }
+
+/* --- Dexie JSON backup import ("Export Database") -------------------------- */
+
+/// A minimal but format-complete Yomitan "Export Database" dump: the Dexie
+/// envelope (`formatName` / `formatVersion` / `data.data`), one entry per store
+/// (dictionaries, terms, termMeta, kanji, tagMeta). Rows exercise every wire
+/// shape the importer accepts:
+/// - a plain object row (`{"field": ...}`),
+/// - Dexie's `arrayNonindexKeys` wrap `{"$": [key, {...}]}` (termMeta),
+/// - the bare primary-key tuple `[key, {...}]` that `inbound=false` stores are
+///   written as in a real export (dictionaries, tagMeta here).
+/// plus a store this schema skips (kanjiMeta) to prove unknown stores are
+/// ignored rather than fatal.
+fn build_dexie_backup_json() -> String {
+    // `inbound=false` stores carry their primary key OUTSIDE the object, so a
+    // real export writes each row as a bare `[key, {...}]` tuple. This is the
+    // BLOCKER-1 shape: without tuple unwrapping every dictionary row is
+    // dropped (nothing is imported) or mis-routed.
+    let dictionaries = r#"{
+        "tableName": "dictionaries",
+        "inbound": false,
+        "rows": [
+            [1, {"title": "Dexie Dict", "revision": "dx-1", "sequenced": true,
+             "version": 3, "author": "GoRakuDo", "url": "https://example.invalid/d",
+             "description": "fixture", "importDate": 1700000000000}]
+        ]
+    }"#;
+    let terms = r#"{
+        "tableName": "terms",
+        "inbound": false,
+        "rows": [
+            ["食べる", "たべる", ["v1", "vt"], ["v1"], 100, ["to eat"], 1001, ["common"]],
+            {"expression": "食べ物", "reading": "たべもの", "definitionTags": ["n"],
+             "rules": ["n"], "score": 80,
+             "glossary": [{"type": "text", "text": "food"}], "sequence": 1003,
+             "termTags": [], "dictionary": "Dexie Dict"}
+        ]
+    }"#;
+    let term_meta = r#"{
+        "tableName": "termMeta",
+        "inbound": false,
+        "rows": [
+            {"expression": "食べる", "mode": "freq", "data": 12, "dictionary": "Dexie Dict"},
+            {"$": ["meta-key", {"expression": "食う", "mode": "pitch",
+             "data": {"pitches": [{"reading": "くう", "deviation": 0, "tags": []}]},
+             "dictionary": "Dexie Dict"}]}
+        ]
+    }"#;
+    let kanji = r#"{
+        "tableName": "kanji",
+        "inbound": false,
+        "rows": [
+            {"character": "食", "onyomi": ["ショク", "ジキ"], "kunyomi": ["た.べる"],
+             "tags": ["ate1"], "meanings": ["eat", "food"],
+             "stats": {"grade": 2}, "dictionary": "Dexie Dict"}
+        ]
+    }"#;
+    // tagMeta rows also arrive as `[key, {...}]` tuples in a real export.
+    let tag_meta = r#"{
+        "tableName": "tagMeta",
+        "inbound": false,
+        "rows": [
+            [7, {"name": "v1", "category": "partOfSpeech", "order": 10,
+             "notes": "Ichidan verb", "score": 0, "dictionary": "Dexie Dict"}]
+        ]
+    }"#;
+    // A store this schema does not model: it must be skipped, not fatal.
+    let kanji_meta = r#"{
+        "tableName": "kanjiMeta",
+        "inbound": false,
+        "rows": [
+            {"character": "食", "mode": "freq", "data": 99, "dictionary": "Dexie Dict"}
+        ]
+    }"#;
+    // `name` deliberately comes AFTER `rows` in the terms entry, to prove the
+    // reader routes rows under a name it only learns at the end of the object.
+    format!(
+        concat!(
+            "{{\"formatName\": \"dexie\", \"formatVersion\": 1,\n",
+            " \"databaseName\": \"/dictionaries\", \"databaseVersion\": 20,\n",
+            " \"tables\": [{{\"name\": \"terms\", \"schema\": \"id\", \"rowCount\": 2}}],\n",
+            " \"data\": {{\"databaseName\": \"/dictionaries\", \"data\": [\n",
+            "  {DICTIONARIES},\n {TERMS},\n {TERM_META},\n {KANJI},\n {TAG_META},\n {KANJI_META}\n",
+            " ]}}}}"
+        ),
+        DICTIONARIES = dictionaries,
+        TERMS = terms,
+        TERM_META = term_meta,
+        KANJI = kanji,
+        TAG_META = tag_meta,
+        KANJI_META = kanji_meta,
+    )
+}
+
+#[test]
+fn imports_a_dexie_backup_into_every_table() {
+    let conn = yomitan::open_in_memory().expect("open in-memory database");
+    let mut progress: Vec<yomitan::ImportProgress> = Vec::new();
+
+    let imported = yomitan::import_dictionary_from_dexie_json_reader(
+        &conn,
+        Cursor::new(build_dexie_backup_json().into_bytes()),
+        &mut |report| progress.push(report),
+    )
+    .expect("import dexie backup");
+
+    // The backup carried exactly one dictionary, listed like a ZIP import.
+    assert_eq!(imported.len(), 1);
+    let summary = &imported[0];
+    assert_eq!(summary.title, "Dexie Dict");
+    assert_eq!(summary.revision, "dx-1");
+    assert_eq!(summary.format, 3);
+    assert!(summary.sequenced);
+    assert!(summary.enabled);
+    assert_eq!(summary.author.as_deref(), Some("GoRakuDo"));
+    assert!(summary.has_frequency_data, "the freq meta row marks it");
+
+    // Two terms: the array-form row and the object-form row.
+    assert_eq!(term_count(&conn), 2);
+    let eating = yomitan::find_terms(&conn, "食べる", None).expect("find 食べる");
+    assert_eq!(eating.len(), 1);
+    assert_eq!(eating[0].reading.as_deref(), Some("たべる"));
+    assert_eq!(eating[0].definition_tags.as_deref(), Some("v1 vt"));
+    assert_eq!(eating[0].rules.as_deref(), Some("v1"));
+    assert_eq!(eating[0].term_tags.as_deref(), Some("common"));
+    assert_eq!(eating[0].sequence, 1001);
+    assert_eq!(eating[0].glossary, json!(["to eat"]));
+    // The object-form row.
+    let food = yomitan::find_terms(&conn, "食べ物", None).expect("find 食べ物");
+    assert_eq!(food.len(), 1);
+    assert_eq!(food[0].glossary, json!([{ "type": "text", "text": "food" }]));
+
+    // termMeta: plain row and the `{"$": [...]}` wrapped pitch row both landed.
+    let meta: i64 = conn
+        .query_row("SELECT COUNT(*) FROM term_meta", [], |row| row.get(0))
+        .expect("count term_meta");
+    assert_eq!(meta, 2);
+    let pitch: String = conn
+        .query_row(
+            "SELECT data_json FROM term_meta WHERE mode = 'pitch'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("pitch meta");
+    assert!(pitch.contains("pitches"), "wrapped row preserved: {pitch}");
+
+    // kanji: onyomi/kunyomi arrays joined, meanings and stats preserved.
+    let kanji = yomitan::find_kanji(&conn, "食")
+        .expect("find kanji")
+        .expect("kanji present");
+    assert_eq!(kanji.onyomi.as_deref(), Some("ショク ジキ"));
+    assert_eq!(kanji.kunyomi.as_deref(), Some("た.べる"));
+    assert_eq!(kanji.meanings, vec!["eat".to_string(), "food".to_string()]);
+    assert_eq!(kanji.stats, Some(json!({ "grade": 2 })));
+
+    // tagMeta: the store's `order` maps to the `sorting` column.
+    let sorting: i64 = conn
+        .query_row("SELECT sorting FROM tags WHERE name = 'v1'", [], |row| {
+            row.get(0)
+        })
+        .expect("tag sorting");
+    assert_eq!(sorting, 10);
+
+    // Only the mapped stores produced rows (kanjiMeta was skipped).
+    let dictionaries: i64 = conn
+        .query_row("SELECT COUNT(*) FROM dictionaries", [], |row| row.get(0))
+        .expect("count dictionaries");
+    assert_eq!(dictionaries, 1);
+
+    // Progress was reported with a per-store label, and moved forward.
+    assert!(
+        progress.iter().map(|p| p.percent).max().unwrap_or(0) > 0,
+        "progress was reported: {progress:?}"
+    );
+    assert!(progress.iter().all(|p| p.current_file.is_some()));
+}
+
+#[test]
+fn dexie_reimport_replaces_content_and_rejects_non_dexie() {
+    let conn = yomitan::open_in_memory().expect("open in-memory database");
+    let bytes = build_dexie_backup_json().into_bytes();
+    let first = yomitan::import_dictionary_from_dexie_json_reader(
+        &conn,
+        Cursor::new(bytes.clone()),
+        &mut |_| {},
+    )
+    .expect("first import");
+    assert_eq!(term_count(&conn), 2);
+
+    // Same identity -> content replaced, not duplicated.
+    let again = yomitan::import_dictionary_from_dexie_json_reader(
+        &conn,
+        Cursor::new(bytes),
+        &mut |_| {},
+    )
+    .expect("re-import");
+    assert_eq!(again[0].id, first[0].id);
+    assert_eq!(term_count(&conn), 2);
+    assert_eq!(yomitan::list_dictionaries(&conn).expect("list").len(), 1);
+
+    // A non-dexie JSON object is rejected, not silently half-imported.
+    let error = yomitan::import_dictionary_from_dexie_json_reader(
+        &conn,
+        Cursor::new(br#"{"formatName": "other", "formatVersion": 1}"#.to_vec()),
+        &mut |_| {},
+    )
+    .expect_err("non-dexie is rejected");
+    assert!(error.contains("formatName"), "unexpected error: {error}");
+
+    // Not JSON at all.
+    assert!(
+        yomitan::import_dictionary_from_dexie_json_reader(
+            &conn,
+            Cursor::new(b"not json".to_vec()),
+            &mut |_| {},
+        )
+        .is_err(),
+        "garbage input must be rejected"
+    );
+}
+
+/// A truncated backup: the `data.data` array ends mid-way, so the import fails
+/// while it is streaming (after a batch may already have committed). The
+/// ROLLBACK on the error path must leave the PREVIOUS import's state intact —
+/// a re-import that dies halfway must not leave a half-replaced dictionary.
+fn build_truncated_dexie_backup_json() -> Vec<u8> {
+    // A well-formed table entry (rows stream and commit) followed by an entry
+    // that is missing its `tableName` — the streaming visitor rejects that and
+    // the whole import is rolled back.
+    let mut json = String::from(
+        "{\"formatName\": \"dexie\", \"formatVersion\": 1,\n",
+    );
+    json.push_str(" \"data\": {\"databaseName\": \"/dictionaries\", \"data\": [\n");
+    // The truncated table: an entry with no `tableName` after rows that would
+    // otherwise be insertable.
+    json.push_str("  {\"rows\": [{\"title\": \"Half Dict\", \"revision\": \"h-1\"}]}\n");
+    json.push_str(" ]}}}");
+    json.into_bytes()
+}
+
+#[test]
+fn a_failed_dexie_import_rolls_back_and_preserves_the_previous_dictionary() {
+    let conn = yomitan::open_in_memory().expect("open in-memory database");
+    let bytes = build_dexie_backup_json().into_bytes();
+
+    // A good import first, so there is prior state to protect.
+    let first = yomitan::import_dictionary_from_dexie_json_reader(
+        &conn,
+        Cursor::new(bytes),
+        &mut |_| {},
+    )
+    .expect("first import");
+    assert_eq!(term_count(&conn), 2);
+    let meta_before: i64 = conn
+        .query_row("SELECT COUNT(*) FROM term_meta", [], |row| row.get(0))
+        .expect("count term_meta");
+
+    // A backup that dies mid-stream (a table entry with no `tableName`). It
+    // must be rejected AND leave the first import untouched: no half-replaced
+    // dictionary, no orphan rows, and the connection is not left holding an
+    // open transaction (the next statement on it must succeed).
+    let error = yomitan::import_dictionary_from_dexie_json_reader(
+        &conn,
+        Cursor::new(build_truncated_dexie_backup_json()),
+        &mut |_| {},
+    )
+    .expect_err("truncated backup is rejected");
+    assert!(error.contains("tableName"), "unexpected error: {error}");
+
+    // Prior state byte-for-byte intact.
+    assert_eq!(term_count(&conn), 2, "the previous terms survive the rollback");
+    let meta_after: i64 = conn
+        .query_row("SELECT COUNT(*) FROM term_meta", [], |row| row.get(0))
+        .expect("count term_meta");
+    assert_eq!(meta_after, meta_before, "term_meta survives the rollback");
+    let dictionaries: i64 = conn
+        .query_row("SELECT COUNT(*) FROM dictionaries", [], |row| row.get(0))
+        .expect("count dictionaries");
+    assert_eq!(dictionaries, 1, "the half-imported dictionary is rolled back");
+    assert_eq!(
+        yomitan::find_terms(&conn, "食べる", None)
+            .expect("lookup still works on the un-poisoned connection")
+            .len(),
+        1,
+        "the connection accepts new statements after a rolled-back import"
+    );
+    let listed = yomitan::list_dictionaries(&conn).expect("list");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, first[0].id);
+}

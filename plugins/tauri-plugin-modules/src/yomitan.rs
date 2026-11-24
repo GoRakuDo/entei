@@ -24,6 +24,7 @@
 //! imported (parsed whole) rather than rejected.
 
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Seek};
 use std::path::Path;
@@ -32,7 +33,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde::de::IgnoredAny;
+use serde::Deserializer as _;
+use serde_json::{Map, Value};
 use zip::ZipArchive;
 
 /// File name of the dictionary-only database inside `app_data_dir`.
@@ -142,7 +145,10 @@ pub struct DictionarySummary {
 /// Banks are the unit because they are the only whole-file boundaries the
 /// importer has: it streams elements off a `BufRead` and cannot know an entry
 /// count without a first pass over a file that may be hundreds of megabytes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+///
+/// Not `Copy`: the Dexie JSON importer carries a `current_file` label (the store
+/// it is streaming), and a `String` field cannot be copied.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportProgress {
     /// Whole-percent share of the banks written so far (0–100).
@@ -151,6 +157,12 @@ pub struct ImportProgress {
     pub current: u32,
     /// Banks the archive holds (never 0: an archive with no bank is rejected).
     pub total: u32,
+    /// What the import is currently writing. Set only by the Dexie JSON importer
+    /// (one huge file streams table by table, so the UI names the store it is
+    /// on); omitted from the payload for the ZIP importer, whose banks already
+    /// say where it is, so its JSON stays exactly as it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_file: Option<String>,
 }
 
 impl ImportProgress {
@@ -159,6 +171,7 @@ impl ImportProgress {
             percent: percent_of(current, total),
             current,
             total,
+            current_file: None,
         }
     }
 
@@ -178,6 +191,7 @@ impl ImportProgress {
             percent: ((share * 100.0) as u32).min(100),
             current: index,
             total,
+            current_file: None,
         }
     }
 }
@@ -1522,6 +1536,883 @@ fn stream_bank<R: BufRead>(
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Dexie JSON backup import (Yomitan "Export Database")
+// ---------------------------------------------------------------------------
+//
+// Yomitan's "Export Database" writes a Dexie.js (IndexedDB) dump: one JSON
+// object whose `data.data` array holds a `{table, rows}` entry per object store.
+// A full backup reaches several gigabytes, so it is NEVER buffered whole — the
+// file is read off a `BufRead` and one row at a time is deserialized off it,
+// exactly like the ZIP bank importer above. Peak memory is one row plus the
+// transaction, not the file. Each table's `rows` array is likewise streamed one
+// element at a time (never materialized as a `Vec`), so a 2.8 GB `terms` store
+// costs one row of memory, not the whole table.
+//
+// Row shape: each element of `rows` is any of the plain object
+// `{"expression": ...}`, Dexie's `arrayNonindexKeys` wrap `{"$": [key, {...}]}`
+// (appears when a store carries keys outside its keyPath), or the bare primary-
+// key tuple `[key, {...}]` the `inbound=false` stores (dictionaries, kanji,
+// termMeta, tagMeta) are written as in a real export. All three unwrap to the
+// inner object before field parsing.
+//
+// Stores mapped: `dictionaries`, `terms`, `termMeta`, `kanji`, `tagMeta`.
+// `kanjiMeta` and `media` are skipped — this schema models the five tables the
+// lookups read, and a backup legitimately carries stores we do not.
+
+/// Rows one transaction batches before it commits. Keeps the WAL from growing
+/// without holding a multi-gigabyte import in one transaction, and a batch is
+/// small enough that a crash loses little work.
+const DEXIE_TRANSACTION_ROWS: usize = 5_000;
+
+/// The title-less dictionary id a store row lands under when it names no
+/// dictionary (array-form rows carry no `dictionary` field). [`DexieImport::finish`]
+/// adopts these rows onto the single dictionary once the document has streamed.
+const DEXIE_UNRESOLVED_DICTIONARY_ID: &str = "unresolved";
+
+/// One imported dictionary as the Dexie importer reports it (same shape the ZIP
+/// importer returns, so the web layer lists both kinds identically).
+pub type DexieImportedDictionary = DictionarySummary;
+
+/// Drop a Dexie key wrap, returning the row object.
+///
+/// A store whose rows are keyed OUTSIDE their keyPath arrives in one of two
+/// wrapped shapes, and both carry the primary key the schema does not model:
+/// - `{"$": [key, {…}]}` — Dexie's `arrayNonindexKeys` envelope.
+/// - `[key, {…}]` — a bare primary-key tuple, which is how the `inbound=false`
+///   stores (`dictionaries`, `kanji`, `termMeta`, `tagMeta`) are written in a
+///   real export (e.g. `[1, {"title": "JMdict", …}]`).
+///
+/// Both are unwrapped to the inner object. The tuple form is recognized only
+/// when its second element is an object, so a legit two-element ARRAY-form row
+/// (e.g. `terms` `[expression, glossary]`, whose slot 1 is never an object) is
+/// left alone for [`dexie_expand_array_row`] to expand by position.
+///
+/// Returns `None` for anything that is not an object / a recognizable tuple —
+/// such a row is skipped, not fatal (a backup never carries one, but a partial
+/// or hand-edited one may).
+fn dexie_unwrap_row(value: Value) -> Option<Map<String, Value>> {
+    match value {
+        Value::Object(object) => {
+            if let Some(wrapped) = object.get("$").and_then(Value::as_array) {
+                return wrapped.get(1)?.as_object().cloned();
+            }
+            Some(object)
+        }
+        Value::Array(items) if items.len() == 2 => items.into_iter().nth(1)?.as_object().cloned(),
+        _ => None,
+    }
+}
+
+/// The outcome of normalizing one raw row for a store: an object ready for the
+/// store handler, or a signal that the row carries nothing insertable and should
+/// be skipped (not fatal — a backup never carries one, but a partial or
+/// hand-edited one may).
+enum DexieRow {
+    Object(Map<String, Value>),
+    Skipped,
+}
+
+/// Expand an array-form row into its named fields.
+///
+/// Some stores arrive as arrays — the same layouts the ZIP bank importer reads —
+/// alongside the object form, so both shapes funnel through one handler:
+/// - `terms`: `[expression, reading, definitionTags, rules, score, glossary, sequence, termTags]`
+/// - `kanji`: `[character, onyomi, kunyomi, tags, meanings, stats]`
+/// - `termMeta`: `[expression, mode, data]`
+///
+/// `terms` has the same ambiguous slot 5/6 as [`parse_term`] (some tools emit
+/// `[..., score, sequence, glossary, termTags]`), resolved the same way. An
+/// object row (or a `{"$": [key, {...}]}` wrap) passes through unchanged.
+fn dexie_expand_array_row(table: &str, row: Value) -> DexieRow {
+    if let Value::Array(items) = &row {
+        // A bare primary-key tuple `[key, {...}]` (how the `inbound=false`
+        // stores are written) is unwrapped to its object FIRST, so it is not
+        // mistaken for an array-form row of the store. The guard — exactly two
+        // elements whose second is an object — never matches a legit array-form
+        // row, whose slot 1 is a reading / kunyomi / mode scalar, never an
+        // object.
+        if items.len() == 2 && items[1].as_object().is_some() {
+            return match dexie_unwrap_row(row) {
+                Some(object) => DexieRow::Object(object),
+                None => DexieRow::Skipped,
+            };
+        }
+    }
+    if let Value::Array(items) = row {
+        return dexie_expand_positional_row(table, &items);
+    }
+    match dexie_unwrap_row(row) {
+        Some(object) => DexieRow::Object(object),
+        None => DexieRow::Skipped,
+    }
+}
+
+/// Expand a true array-form row (NOT a `[key, {…}]` tuple) into its named
+/// fields, positionally.
+fn dexie_expand_positional_row(table: &str, items: &[Value]) -> DexieRow {
+    let field = |index: usize| items.get(index).cloned().unwrap_or(Value::Null);
+    let object = match table {
+        "terms" => {
+            if items.len() < 6 || items[0].as_str().is_none() {
+                return DexieRow::Skipped;
+            }
+            let mut glossary_index = 5;
+            let mut sequence_index = 6;
+            if items.len() > 6 && items[5].is_number() && !items[6].is_number() {
+                glossary_index = 6;
+                sequence_index = 5;
+            }
+            let mut object = Map::new();
+            object.insert("expression".into(), field(0));
+            object.insert("reading".into(), field(1));
+            object.insert("definitionTags".into(), field(2));
+            object.insert("rules".into(), field(3));
+            object.insert("score".into(), field(4));
+            object.insert("glossary".into(), field(glossary_index));
+            object.insert("sequence".into(), field(sequence_index));
+            object.insert("termTags".into(), field(7));
+            object
+        }
+        "kanji" => {
+            if items.len() < 5 || items[0].as_str().is_none() {
+                return DexieRow::Skipped;
+            }
+            let mut object = Map::new();
+            object.insert("character".into(), field(0));
+            object.insert("onyomi".into(), field(1));
+            object.insert("kunyomi".into(), field(2));
+            object.insert("tags".into(), field(3));
+            object.insert("meanings".into(), field(4));
+            object.insert("stats".into(), field(5));
+            object
+        }
+        "termMeta" => {
+            if items.len() < 3 || items[0].as_str().is_none() {
+                return DexieRow::Skipped;
+            }
+            let mut object = Map::new();
+            object.insert("expression".into(), field(0));
+            object.insert("mode".into(), field(1));
+            object.insert("data".into(), field(2));
+            object
+        }
+        // `dictionaries` and `tagMeta` are object-only; an array here carries
+        // nothing this schema reads, so it is skipped rather than fatal.
+        _ => return DexieRow::Skipped,
+    };
+    DexieRow::Object(object)
+}
+/// First present string among `keys`, or `None`. Numbers are stringified (some
+/// exporters encode a reading or an author as a number).
+fn dexie_string(object: &Map<String, Value>, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| object.get(*key).and_then(opt_string))
+}
+
+fn dexie_i64(object: &Map<String, Value>, key: &str) -> i64 {
+    to_i64(object.get(key))
+}
+
+/// Join a JSON array of strings with single spaces — the stored form the term
+/// lookup reads `definition_tags` / `rules` / `term_tags` back in (the ZIP path
+/// stores the same wire shape). A scalar string passes through unchanged.
+fn dexie_join_strings(value: Option<&Value>) -> Option<String> {
+    let value = value?;
+    if let Some(text) = value.as_str() {
+        return if text.is_empty() { None } else { Some(text.into()) };
+    }
+    let items = value.as_array()?;
+    let joined = items
+        .iter()
+        .filter_map(|item| opt_string(item))
+        .collect::<Vec<_>>()
+        .join(" ");
+    if joined.is_empty() { None } else { Some(joined) }
+}
+
+/// A JSON payload stored as text, or `None` for a missing / null field.
+fn dexie_json(value: Option<&Value>) -> Option<String> {
+    to_json(value)
+}
+
+/// State threaded through one Dexie import.
+///
+/// Inserts run inside an explicit `BEGIN IMMEDIATE` … `COMMIT` batch that
+/// reopens every [`DEXIE_TRANSACTION_ROWS`] rows. Plain `execute` per row (no
+/// statements held across the commit) keeps the chunked-commit simple:
+/// `rusqlite`'s own statement cache makes re-preparing free, and not borrowing a
+/// prepared statement across a commit sidesteps the borrow conflict entirely.
+///
+/// A store row that names no dictionary (array-form rows carry no `dictionary`
+/// field) lands under [`DEXIE_UNRESOLVED_DICTIONARY_ID`]; [`DexieImport::finish`]
+/// adopts those onto the single dictionary once every dictionary is known.
+struct DexieImport<'a> {
+    connection: &'a Connection,
+    pending: usize,
+    /// Titles seen so far -> the dictionary id their rows carry.
+    dictionary_ids: HashMap<String, String>,
+    /// Whether a transaction is open on `connection` right now. `finish` and
+    /// [`DexieImport::rollback`] clear it; the [`Drop`] impl reads it so a
+    /// failed import never leaves the caller's connection holding an open
+    /// `BEGIN IMMEDIATE` (which would poison every later statement on it).
+    in_transaction: bool,
+}
+
+impl<'a> DexieImport<'a> {
+    fn new(connection: &'a Connection) -> Result<Self, String> {
+        connection
+            .execute_batch("BEGIN IMMEDIATE")
+            .map_err(|e| e.to_string())?;
+        Ok(Self {
+            connection,
+            pending: 0,
+            dictionary_ids: HashMap::new(),
+            in_transaction: true,
+        })
+    }
+
+    /// Explicitly abandon the import, rolling back everything not yet committed.
+    ///
+    /// Called on the streaming error path so a half-written backup is undone
+    /// (see the re-import-safety note on [`import_dictionary_from_dexie_json_reader`]);
+    /// the [`Drop`] impl covers any other early exit. Idempotent.
+    fn rollback(mut self) {
+        if self.in_transaction {
+            // Best-effort: a rollback of a healthy transaction cannot fail, and
+            // if the connection is already poisoned there is nothing to recover.
+            let _ = self.connection.execute_batch("ROLLBACK");
+            self.in_transaction = false;
+        }
+    }
+
+    /// Run one insert inside the open batch, committing and reopening once
+    /// [`DEXIE_TRANSACTION_ROWS`] rows are pending.
+    fn insert(&mut self, sql: &str, args: impl rusqlite::Params) -> Result<(), String> {
+        self.connection.execute(sql, args).map_err(|e| e.to_string())?;
+        self.pending += 1;
+        if self.pending >= DEXIE_TRANSACTION_ROWS {
+            self.commit_and_reopen()?;
+        }
+        Ok(())
+    }
+
+    fn commit_and_reopen(&mut self) -> Result<(), String> {
+        self.connection
+            .execute_batch("COMMIT")
+            .map_err(|e| e.to_string())?;
+        self.pending = 0;
+        self.connection
+            .execute_batch("BEGIN IMMEDIATE")
+            .map_err(|e| e.to_string())
+    }
+
+    fn finish(mut self) -> Result<(), String> {
+        // A store row that names no dictionary (array-form rows carry no
+        // `dictionary` field) lands under a single title-less placeholder id. Now
+        // that the whole document has streamed and every dictionary is known, a
+        // backup with exactly ONE dictionary unambiguously owns those rows; with
+        // several an unnamed row is genuinely ambiguous, so it stays on the
+        // placeholder and simply will not match a lookup (nothing is lost or
+        // misattributed). Runs inside the still-open batch.
+        if self.dictionary_ids.len() == 1 {
+            let authoritative = self.dictionary_ids.values().next().unwrap().clone();
+            if authoritative != DEXIE_UNRESOLVED_DICTIONARY_ID {
+                for table in ["terms", "kanjis", "term_meta", "tags"] {
+                    self.connection
+                        .execute(
+                            &format!(
+                                "UPDATE {table} SET dictionary_id = ?1 WHERE dictionary_id = ?2"
+                            ),
+                            params![authoritative, DEXIE_UNRESOLVED_DICTIONARY_ID],
+                        )
+                        .map_err(|e| e.to_string())?;
+        }
+            }
+        }
+        // Committing an empty batch is a no-op, so this closes the transaction
+        // either way and leaves the connection without an open one.
+        let commit_result = self
+            .connection
+            .execute_batch("COMMIT")
+            .map_err(|e| e.to_string());
+        self.in_transaction = false;
+        return commit_result;
+    }
+}
+
+/// Roll back an uncommitted import on the way out, so an error never leaves
+/// the connection holding an open `BEGIN IMMEDIATE` (which would poison every
+/// later statement the caller runs on it).
+impl<'a> Drop for DexieImport<'a> {
+    fn drop(&mut self) {
+        if self.in_transaction {
+            let _ = self.connection.execute_batch("ROLLBACK");
+            self.in_transaction = false;
+        }
+    }
+}
+
+impl<'a> DexieImport<'a> {
+
+    /// The id rows for `title` should carry, computing it on first reference.
+    ///
+    /// Array-form rows carry no `dictionary` field, so `title` arrives empty.
+    /// Those rows take a title-less placeholder id; once the whole document has
+    /// streamed and every dictionary is known, [`finish`](Self::finish) adopts
+    /// them onto the single dictionary (a backup with several dictionaries and
+    /// unnamed rows is ambiguous, so those simply will not match a lookup).
+    fn dictionary_id(&mut self, title: &str) -> Result<String, String> {
+        // An empty title means the row named no dictionary (array-form rows carry
+        // no `dictionary` field). It takes ONE shared title-less placeholder id,
+        // which [`finish`](Self::finish) adopts onto the single dictionary once
+        // the whole document has streamed.
+        if title.is_empty() {
+            return Ok(DEXIE_UNRESOLVED_DICTIONARY_ID.to_string());
+        }
+        if let Some(id) = self.dictionary_ids.get(title) {
+            return Ok(id.clone());
+        }
+        let id = dictionary_id(0, "", title);
+        self.dictionary_ids.insert(title.to_string(), id.clone());
+        Ok(id)
+    }
+
+    fn insert_dictionary(&mut self, object: &Map<String, Value>) -> Result<(), String> {
+        let Some(title) = dexie_string(object, &["title"]) else {
+            return Ok(());
+        };
+        let version = dexie_i64(object, "version");
+        let revision = dexie_string(object, &["revision"]).unwrap_or_default();
+        // Recompute the authoritative id now that version/revision are known, and
+        // adopt any rows already written under the title-only placeholder.
+        let id = dictionary_id(version, &revision, &title);
+        // Re-importing replaces a dictionary's content (the ZIP path deletes its
+        // rows before writing banks), so clear this id's previous rows before the
+        // fresh ones land. Runs before the adopt below so rows pulled off the
+        // title-less placeholder are this import's, not a prior run's.
+        for table in ["terms", "kanjis", "term_meta", "tags"] {
+            self.insert(
+                &format!("DELETE FROM {table} WHERE dictionary_id = ?1"),
+                params![id],
+            )?;
+        }
+        if let Some(previous) = self.dictionary_ids.insert(title.clone(), id.clone()) {
+            if previous != id {
+                for table in ["terms", "kanjis", "term_meta", "tags"] {
+                    self.insert(
+                        &format!("UPDATE {table} SET dictionary_id = ?1 WHERE dictionary_id = ?2"),
+                        params![id, previous],
+                    )?;
+                }
+            }
+        }
+        // `created_at` is written only on insert (the conflict path leaves the
+        // first-import timestamp alone), matching the ZIP path.
+        let created_at = now_ms();
+        let sequenced = matches!(object.get("sequenced"), Some(Value::Bool(true)));
+        let author = dexie_string(object, &["author"]);
+        let url = dexie_string(object, &["url", "indexUrl", "downloadUrl"]);
+        let description = dexie_string(object, &["description"]);
+        // A Dexie dictionary row encodes its format version as `version` (there
+        // is no separate `format` field like the ZIP bank filename carries), so
+        // fall back to it when `format` is absent.
+        let format = match dexie_i64(object, "format") {
+            0 => dexie_i64(object, "version"),
+            other => other,
+        };
+        self.insert(
+            "INSERT INTO dictionaries (id, title, format, revision, sequenced, author, url, description, created_at, enabled) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1) \
+             ON CONFLICT(id) DO UPDATE SET \
+               title=excluded.title, format=excluded.format, revision=excluded.revision, \
+               sequenced=excluded.sequenced, author=excluded.author, url=excluded.url, \
+               description=excluded.description, enabled=1",
+            params![id, title, format, revision, sequenced as i64, author, url, description, created_at],
+        )
+    }
+
+    fn insert_term(&mut self, object: &Map<String, Value>) -> Result<(), String> {
+        let Some(expression) = dexie_string(object, &["expression"]) else {
+            return Ok(());
+        };
+        let title = dexie_string(object, &["dictionary"]).unwrap_or_default();
+        let id = self.dictionary_id(&title)?;
+        let reading = dexie_string(object, &["reading"]);
+        // `tags` is the documented legacy alias for `definitionTags`.
+        let definition_tags =
+            dexie_join_strings(object.get("definitionTags").or_else(|| object.get("tags")));
+        let rules = dexie_join_strings(object.get("rules"));
+        let term_tags = dexie_join_strings(object.get("termTags"));
+        let score = dexie_i64(object, "score");
+        let sequence = dexie_i64(object, "sequence");
+        let glossary_json = dexie_json(object.get("glossary"));
+        self.insert(
+            "INSERT INTO terms (dictionary_id, expression, reading, definition_tags, rules, score, sequence, term_tags, glossary_json) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                id,
+                expression,
+                reading,
+                definition_tags,
+                rules,
+                score,
+                sequence,
+                term_tags,
+                glossary_json.unwrap_or_else(|| "null".into()),
+            ],
+        )
+    }
+
+    fn insert_kanji(&mut self, object: &Map<String, Value>) -> Result<(), String> {
+        let Some(character) = dexie_string(object, &["character"]) else {
+            return Ok(());
+        };
+        let title = dexie_string(object, &["dictionary"]).unwrap_or_default();
+        let id = self.dictionary_id(&title)?;
+        let onyomi = dexie_join_strings(object.get("onyomi"));
+        let kunyomi = dexie_join_strings(object.get("kunyomi"));
+        let tags = dexie_join_strings(object.get("tags"));
+        let meanings_json = dexie_json(object.get("meanings"));
+        let stats_json = dexie_json(object.get("stats"));
+        self.insert(
+            "INSERT INTO kanjis (character, dictionary_id, onyomi, kunyomi, tags, meanings_json, stats_json) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+             ON CONFLICT(character) DO UPDATE SET \
+               dictionary_id=excluded.dictionary_id, onyomi=excluded.onyomi, kunyomi=excluded.kunyomi, \
+               tags=excluded.tags, meanings_json=excluded.meanings_json, stats_json=excluded.stats_json",
+            params![character, id, onyomi, kunyomi, tags, meanings_json, stats_json],
+        )
+    }
+
+    fn insert_term_meta(&mut self, object: &Map<String, Value>) -> Result<(), String> {
+        let Some(expression) = dexie_string(object, &["expression"]) else {
+            return Ok(());
+        };
+        let title = dexie_string(object, &["dictionary"]).unwrap_or_default();
+        let id = self.dictionary_id(&title)?;
+        let mode = dexie_string(object, &["mode"]).unwrap_or_else(|| "freq".into());
+        let data_json = dexie_json(object.get("data"));
+        self.insert(
+            "INSERT INTO term_meta (expression, mode, data_json, dictionary_id) VALUES (?1, ?2, ?3, ?4)",
+            params![expression, mode, data_json.unwrap_or_else(|| "null".into()), id],
+        )
+    }
+
+    fn insert_tag(&mut self, object: &Map<String, Value>) -> Result<(), String> {
+        let Some(name) = dexie_string(object, &["name"]) else {
+            return Ok(());
+        };
+        let title = dexie_string(object, &["dictionary"]).unwrap_or_default();
+        let id = self.dictionary_id(&title)?;
+        let category = dexie_string(object, &["category"]).unwrap_or_else(|| "default".into());
+        // The store spells it `order`; the column is `sorting` (ZIP path same).
+        let sorting = dexie_i64(object, "order");
+        let notes = dexie_string(object, &["notes"]).unwrap_or_default();
+        let score = dexie_i64(object, "score");
+        self.insert(
+            "INSERT INTO tags (name, category, sorting, notes, score, dictionary_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![name, category, sorting, notes, score, id],
+        )
+    }
+
+    /// Route one row of `table` to its store handler. Unknown stores (media,
+    /// kanjiMeta) are ignored: a backup legitimately carries stores this schema
+    /// does not model.
+    fn insert_row(&mut self, table: &str, row: Value) -> Result<(), String> {
+        // A row is usually the plain object, but some stores also arrive in
+        // array form (the same layout the ZIP bank importer reads). Expand an
+        // array to its named fields first so both shapes share one handler.
+        let object = match dexie_expand_array_row(table, row) {
+            DexieRow::Object(object) => object,
+            DexieRow::Skipped => return Ok(()),
+        };
+        match table {
+            "dictionaries" => self.insert_dictionary(&object),
+            "terms" => self.insert_term(&object),
+            "kanji" => self.insert_kanji(&object),
+            "termMeta" => self.insert_term_meta(&object),
+            "tagMeta" => self.insert_tag(&object),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// Import a Yomitan Dexie JSON backup read from `reader`, reporting progress
+/// through `on_progress` (the same [`ImportProgress`] the ZIP importer emits, so
+/// the web layer's existing listener drives the bar).
+///
+/// The whole file is streamed; returns every dictionary the backup carried.
+pub fn import_dictionary_from_dexie_json_reader<R: BufRead>(
+    conn: &Connection,
+    reader: R,
+    on_progress: &mut dyn FnMut(ImportProgress),
+) -> Result<Vec<DexieImportedDictionary>, String> {
+    let mut import = DexieImport::new(conn)?;
+    let mut context = DexieStreamContext::default();
+    if let Err(error) = stream_dexie_document(reader, &mut import, &mut context, on_progress) {
+        // Roll back everything this import wrote (the last batch plus any
+        // re-import deletes), so a failed import leaves the previous state
+        // byte-for-byte intact instead of a half-written dictionary. The Drop
+        // impl is the safety net; this explicit call is the documented path.
+        import.rollback();
+        return Err(error);
+    }
+    import.finish()?;
+    // The final 100% carries a label like every streamed row, so the web bar's
+    // label never flashes empty on completion.
+    on_progress(ImportProgress {
+        percent: 100,
+        current: 1,
+        total: 1,
+        current_file: Some("dictionaries".to_string()),
+    });
+    list_dictionaries(conn)
+}
+
+/// Import a Yomitan Dexie JSON backup from a path on disk (the Tauri command
+/// path): streamed off the file, never buffered whole.
+pub fn import_dictionary_from_dexie_json(
+    conn: &Connection,
+    path: impl AsRef<Path>,
+    on_progress: &mut dyn FnMut(ImportProgress),
+) -> Result<Vec<DexieImportedDictionary>, String> {
+    let path = path.as_ref();
+    let file = File::open(path).map_err(|e| format!("failed to open {}: {e}", path.display()))?;
+    import_dictionary_from_dexie_json_reader(conn, BufReader::new(file), on_progress)
+}
+
+/// Position bookkeeping for one streamed backup: how many rows of the
+/// current store have landed (for the progress label) and, in the rare case
+/// a table's `tableName` key trails its `rows`, the one row held until the
+/// name is known.
+#[derive(Default)]
+struct DexieStreamContext {
+    rows: u64,
+    buffered: Option<Value>,
+}
+
+impl DexieStreamContext {
+    fn take_buffered(&mut self) -> Option<Value> {
+        self.buffered.take()
+    }
+}
+/// Parse the top-level object of a Dexie export. Every key is handled through
+/// ONE serde deserializer — `formatName`/`formatVersion` are validated, the big
+/// `data` object is streamed via [`stream_dexie_data`], and sibling keys (the
+/// multi-megabyte `tables` metadata block) are skipped by value, never buffered
+/// whole. Routing every read through serde (rather than mixing manual
+/// peek/consume with `Deserializer::from_reader`) is deliberate: serde's own
+/// read-ahead buffer otherwise desyncs a hand-rolled position walker and makes
+/// it reject valid input as "malformed".
+fn stream_dexie_document<R: BufRead>(
+    reader: R,
+    import: &mut DexieImport<'_>,
+    context: &mut DexieStreamContext,
+    on_progress: &mut dyn FnMut(ImportProgress),
+) -> Result<(), String> {
+    let mut de = serde_json::Deserializer::from_reader(reader);
+    de.deserialize_map(DexieDocument {
+        import,
+        context,
+        on_progress,
+    })
+    .map_err(|e| format!("invalid dexie export: {e}"))
+}
+
+/// [`serde::de::DeserializeSeed`] walking the top-level Dexie object's keys.
+struct DexieDocument<'a, 'b> {
+    import: &'a mut DexieImport<'b>,
+    context: &'a mut DexieStreamContext,
+    on_progress: &'a mut dyn FnMut(ImportProgress),
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for DexieDocument<'_, '_> {
+    type Value = ();
+    fn deserialize<D: serde::Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Self::Value, D::Error> {
+        deserializer.deserialize_map(self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for DexieDocument<'_, '_> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a dexie export object")
+    }
+    fn visit_map<A: serde::de::MapAccess<'de>>(
+        mut self,
+        mut map: A,
+    ) -> Result<Self::Value, A::Error> {
+        let mut seen_data = false;
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "formatName" => {
+                    let name = map.next_value::<String>()?;
+                    if name != "dexie" {
+                        return Err(serde::de::Error::custom(format!(
+                            "not a dexie export (formatName {name:?})"
+                        )));
+                    }
+                }
+                "formatVersion" => {
+                    let version = map.next_value::<i64>()?;
+                    if version != 1 {
+                        return Err(serde::de::Error::custom(format!(
+                            "unsupported dexie formatVersion {version}"
+                        )));
+                    }
+                }
+                "data" => {
+                    seen_data = true;
+                    map.next_value_seed(DexieData {
+                        import: &mut self.import,
+                        context: &mut self.context,
+                        on_progress: &mut self.on_progress,
+                    })?;
+                }
+                _ => {
+                    // `databaseName`, the `tables` metadata block, etc.
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+        }
+        if !seen_data {
+            return Err(serde::de::Error::custom("dexie export has no data section"));
+        }
+        Ok(())
+    }
+}
+
+/// The top-level `data` OBJECT — `{ databaseName, data:[ …tables… ] }`. The
+/// small sibling keys are skipped via [`IgnoredAny`]; the big inner `data`
+/// array is streamed one table entry at a time.
+struct DexieData<'a, 'b> {
+    import: &'a mut DexieImport<'b>,
+    context: &'a mut DexieStreamContext,
+    on_progress: &'a mut dyn FnMut(ImportProgress),
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for DexieData<'_, '_> {
+    type Value = ();
+    fn deserialize<D: serde::Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Self::Value, D::Error> {
+        deserializer.deserialize_map(self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for DexieData<'_, '_> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a dexie data object")
+    }
+    fn visit_map<A: serde::de::MapAccess<'de>>(
+        mut self,
+        mut map: A,
+    ) -> Result<Self::Value, A::Error> {
+        let mut seen_array = false;
+        while let Some(key) = map.next_key::<String>()? {
+            if key == "data" {
+                seen_array = true;
+                map.next_value_seed(DexieTableSeq {
+                    import: &mut self.import,
+                    context: &mut self.context,
+                    on_progress: &mut self.on_progress,
+                })?;
+            } else {
+                map.next_value::<IgnoredAny>()?;
+            }
+        }
+        if !seen_array {
+            return Err(serde::de::Error::custom("dexie export has no data array"));
+        }
+        Ok(())
+    }
+}
+
+/// The inner `data` ARRAY — one `{tableName, rows:[…]}` entry per table, visited
+/// one at a time via [`serde::de::SeqAccess`].
+struct DexieTableSeq<'a, 'b> {
+    import: &'a mut DexieImport<'b>,
+    context: &'a mut DexieStreamContext,
+    on_progress: &'a mut dyn FnMut(ImportProgress),
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for DexieTableSeq<'_, '_> {
+    type Value = ();
+    fn deserialize<D: serde::Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Self::Value, D::Error> {
+        deserializer.deserialize_seq(self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for DexieTableSeq<'_, '_> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a dexie data.data array")
+    }
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(
+        mut self,
+        mut seq: A,
+    ) -> Result<Self::Value, A::Error> {
+        // Each table entry is streamed via its OWN seed, so only `tableName`
+        // and the fields before `rows` are materialized — never the rows array
+        // (a `terms` store alone can be gigabytes).
+        while seq
+            .next_element_seed(DexieTableEntry {
+                import: &mut self.import,
+                context: &mut self.context,
+                on_progress: &mut self.on_progress,
+            })?
+            .is_some()
+        {}
+        Ok(())
+    }
+}
+
+/// ONE `{tableName, rows:[…]}` entry, streamed key by key. `rows` is walked one
+/// element at a time through its own [`SeqAccess`] and each row is inserted
+/// immediately, so peak memory stays at ONE row rather than the whole table —
+/// the difference between a few kilobytes and an OOM on a multi-gigabyte
+/// backup.
+struct DexieTableEntry<'a, 'b> {
+    import: &'a mut DexieImport<'b>,
+    context: &'a mut DexieStreamContext,
+    on_progress: &'a mut dyn FnMut(ImportProgress),
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for DexieTableEntry<'_, '_> {
+    type Value = ();
+    fn deserialize<D: serde::Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Self::Value, D::Error> {
+        deserializer.deserialize_map(self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for DexieTableEntry<'_, '_> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a dexie table entry")
+    }
+    fn visit_map<A: serde::de::MapAccess<'de>>(
+        mut self,
+        mut map: A,
+    ) -> Result<Self::Value, A::Error> {
+        let mut table: Option<String> = None;
+        while let Some(key) = map.next_key::<String>()? {
+            if key == "rows" {
+                map.next_value_seed(DexieRowSeq {
+                    import: &mut self.import,
+                    context: &mut self.context,
+                    on_progress: &mut self.on_progress,
+                    // Resolved when `tableName` precedes `rows` (the export's
+                    // own layout). If it somehow trails, the first row is
+                    // buffered on the context until the name is known.
+                    table: &mut table,
+                })?;
+            } else if key == "tableName" || key == "name" {
+                let name = map.next_value::<String>()?;
+                if let Some(buffered) = self.context.take_buffered() {
+                    self.import
+                        .insert_row(&name, buffered)
+                        .map_err(serde::de::Error::custom)?;
+                }
+                table = Some(name);
+            } else {
+                map.next_value::<IgnoredAny>()?;
+            }
+        }
+        if table.is_none() {
+            // An entry with no name carries rows this schema cannot route.
+            return Err(serde::de::Error::custom(
+                "dexie table entry is missing tableName",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// The `rows` ARRAY of one table, visited one ROW at a time.
+struct DexieRowSeq<'a, 'b> {
+    import: &'a mut DexieImport<'b>,
+    context: &'a mut DexieStreamContext,
+    on_progress: &'a mut dyn FnMut(ImportProgress),
+    /// Store name the rows belong to; resolved from the sibling `tableName`.
+    table: &'a mut Option<String>,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for DexieRowSeq<'_, '_> {
+    type Value = ();
+    fn deserialize<D: serde::Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Self::Value, D::Error> {
+        deserializer.deserialize_seq(self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for DexieRowSeq<'_, '_> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a dexie table rows array")
+    }
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(
+        self,
+        mut seq: A,
+    ) -> Result<Self::Value, A::Error> {
+        let mut reported_percent = 0u32;
+        while let Some(row) = seq.next_element::<Value>()? {
+            let Some(table) = self.table.as_deref() else {
+                // `tableName` trails `rows`: hold the one row on the context
+                // until the name arrives, then let the table-entry visitor
+                // insert it under the resolved name. Only ever one row deep,
+                // so memory stays bounded.
+                self.context.buffered = Some(row);
+                return Ok(());
+            };
+            self.import
+                .insert_row(table, row)
+                .map_err(serde::de::Error::custom)?;
+            self.context.rows += 1;
+            // Emit only when the whole-percent moves: a 3M-row table would
+            // otherwise fire millions of near-identical events and freeze the
+            // UI. `dexie_percent` is monotonic, so this is at most 100 emits
+            // per table.
+            let percent = dexie_percent(self.context.rows, reported_percent);
+            if percent != reported_percent {
+                reported_percent = percent;
+                (self.on_progress)(ImportProgress {
+                    percent,
+                    current: self.context.rows as u32,
+                    total: 1,
+                    current_file: Some(table.to_string()),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The whole-percent a streamed row count maps to, monotonic by construction.
+///
+/// The export's own `tables[].rowCount` metadata would give an exact total, but
+/// reading it costs a first pass over a multi-gigabyte file. Instead the percent
+/// follows the running row count on a curve that reaches only 99 while streaming
+/// (the caller emits an explicit 100% once the document closes), so the bar
+/// moves early and never jumps backwards.
+fn dexie_percent(rows: u64, reported: u32) -> u32 {
+    // 100 * rows / (rows + 1000): fast early movement, asymptotic to 100.
+    let percent = ((rows.saturating_mul(100)) / (rows.saturating_add(1000))) as u32;
+    percent.clamp(reported, 99)
 }
 
 // ---------------------------------------------------------------------------

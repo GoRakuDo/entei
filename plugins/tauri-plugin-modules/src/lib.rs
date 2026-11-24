@@ -221,7 +221,35 @@ async fn yomitan_import_dictionary<R: Runtime>(
         // mid-import makes both fail), and a repeated report is harmless on the
         // receiving end, which only ever moves its percent forward.
         &mut |report: ImportProgress| {
-            let _ = app.emit(YOMITAN_IMPORT_PROGRESS_EVENT, report);
+            // Not `Copy` (it carries the Dexie per-store label), so the dual
+            // route clones for the broadcast and moves the original onward.
+            let _ = app.emit(YOMITAN_IMPORT_PROGRESS_EVENT, report.clone());
+            let _ = app.emit_to(MAIN_WINDOW_LABEL, YOMITAN_IMPORT_PROGRESS_EVENT, report);
+        },
+    ))
+}
+
+/// Import a Yomitan "Export Database" backup (a Dexie JSON file) from a path the
+/// user picked, publishing [`YOMITAN_IMPORT_PROGRESS_EVENT`] as it writes.
+///
+/// A backup reaches several gigabytes, so it is streamed straight off disk and
+/// inserted in chunked transactions — never buffered whole. Returns every
+/// dictionary the backup carried (the same [`DictionarySummary`] the ZIP path
+/// returns, so the web layer lists both identically).
+#[tauri::command]
+async fn yomitan_import_dictionary_dexie<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, YomitanDbState>,
+    json_path: String,
+) -> Result<Vec<DictionarySummary>, String> {
+    with_yomitan_db!(state, |conn| yomitan::import_dictionary_from_dexie_json(
+        conn,
+        &json_path,
+        // Same redundant dual-route emit as the ZIP import: an event that sits
+        // at 0% until it jumps to done is what one silently undelivered stream
+        // looks like, and neither route may fail the import.
+        &mut |report: ImportProgress| {
+            let _ = app.emit(YOMITAN_IMPORT_PROGRESS_EVENT, report.clone());
             let _ = app.emit_to(MAIN_WINDOW_LABEL, YOMITAN_IMPORT_PROGRESS_EVENT, report);
         },
     ))
@@ -422,6 +450,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             modules_fetch_text,
             modules_write_text_file,
             yomitan_import_dictionary,
+            yomitan_import_dictionary_dexie,
             yomitan_list_dictionaries,
             yomitan_toggle_dictionary,
             yomitan_delete_dictionary,
