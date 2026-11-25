@@ -24,6 +24,14 @@ import { createDefaultOptions } from '@gorakudo/yomitan-headless/settings';
 import { ModuleItemManager } from '@/components/settings/ModuleItemManager';
 import { readYomitanOptions } from '@/modules/yomitan/yomitan-preferences';
 
+const toast = vi.hoisted(() => ({
+  error: vi.fn(),
+  warning: vi.fn(),
+  info: vi.fn(),
+  success: vi.fn(),
+}));
+vi.mock('sonner', () => ({ toast }));
+
 interface InvokeArgs {
   command: string;
   args: Record<string, unknown> | undefined;
@@ -163,6 +171,10 @@ afterEach(async () => {
   delete internals().__TAURI_EVENT_PLUGIN_INTERNALS__;
   localStorage.clear();
   vi.restoreAllMocks();
+  toast.error.mockClear();
+  toast.warning.mockClear();
+  toast.info.mockClear();
+  toast.success.mockClear();
 });
 
 describe('ModuleItemManager — native engine wiring', () => {
@@ -278,6 +290,94 @@ describe('ModuleItemManager — native engine wiring', () => {
       });
     });
     expect(onChange).toHaveBeenCalled();
+  });
+
+  it('removes the deleted dictionary from the local list immediately', async () => {
+    let deleted = false;
+    const { calls } = installTauri([summary()]);
+    const options = createDefaultOptions();
+    options.profiles[0]!.options.dictionaries = [
+      {
+        name: 'JMdict',
+        alias: '',
+        enabled: true,
+        allowSecondarySearches: false,
+        definitionsCollapsible: 'not-collapsible',
+        partsOfSpeechFilter: true,
+        useDeinflections: true,
+      },
+    ] as never;
+    const onChange = vi.fn();
+    renderManager(options, onChange);
+
+    // The engine delete commits, and the reconciliation refresh (dispatched by
+    // the real delete) re-reads a list that no longer has the dictionary.
+    const invoke = internals().__TAURI_INTERNALS__?.invoke;
+    if (typeof invoke !== 'function') throw new Error('tauri invoke missing');
+    internals().__TAURI_INTERNALS__!.invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      calls.push({ command, args });
+      if (command.endsWith('yomitan_delete_dictionary')) {
+        deleted = true;
+        return null;
+      }
+      if (command.endsWith('yomitan_list_dictionaries')) return deleted ? [] : [summary()];
+      if (command === 'plugin:event|listen') return 1;
+      return null;
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: `${COPY.remove}: JMdict` }));
+
+    // The row disappears as soon as its own delete commits, without waiting for
+    // the reconciliation refresh — a batch of deletes must each drop its own row.
+    await waitFor(() => {
+      expect(screen.queryByText('JMdict')).toBeNull();
+    });
+    expect(onChange).toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('keeps the row and reports a toast when the delete fails', async () => {
+    const { calls } = installTauri([summary()]);
+    const options = createDefaultOptions();
+    options.profiles[0]!.options.dictionaries = [
+      {
+        name: 'JMdict',
+        alias: '',
+        enabled: true,
+        allowSecondarySearches: false,
+        definitionsCollapsible: 'not-collapsible',
+        partsOfSpeechFilter: true,
+        useDeinflections: true,
+      },
+    ] as never;
+    const onChange = vi.fn();
+    renderManager(options, onChange);
+
+    // Make the engine delete reject while the list still reads fine: the row is
+    // still installed, so it must stay on screen.
+    const invoke = internals().__TAURI_INTERNALS__?.invoke;
+    if (typeof invoke !== 'function') throw new Error('tauri invoke missing');
+    internals().__TAURI_INTERNALS__!.invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      calls.push({ command, args });
+      if (command.endsWith('yomitan_delete_dictionary')) {
+        throw new Error('delete failed');
+      }
+      if (command.endsWith('yomitan_list_dictionaries')) return [summary()];
+      if (command === 'plugin:event|listen') return 1;
+      return null;
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: `${COPY.remove}: JMdict` }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalled();
+    });
+    const message = toast.error.mock.calls[0]?.[0];
+    expect(typeof message === 'string' ? message : '').toContain('delete failed');
+    // Not removed locally: the dictionary is in fact still installed.
+    expect(await screen.findByText('JMdict')).toBeTruthy();
+    // No optimistic option write for a failed delete.
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it('does not draw an option entry whose dictionary data is gone', async () => {

@@ -177,7 +177,28 @@ export function ModuleItemManager({
   }
 
   async function handleDelete(row: ModuleItemRow) {
-    await deleteDictionary(row.id);
+    try {
+      await deleteDictionary(row.id);
+    } catch (error) {
+      // The engine delete failed: the row still exists, so leave it on screen
+      // and report the failure instead of silently dropping a dictionary that
+      // is in fact still installed.
+      toast.error(error instanceof Error ? error.message : String(error));
+      // Re-read the canonical engine list: the DB, not the local filter, is the
+      // source of truth when a delete goes wrong.
+      void refresh();
+      return;
+    }
+    // Remove this dictionary from the local list the moment its DB delete
+    // resolves. Without this, a batch of deletes depends solely on the
+    // `YOMITAN_DICTIONARIES_CHANGED_EVENT` → `refresh()` path, whose
+    // generation guard drops every refresh but the latest — so completed rows
+    // stayed on screen (spinner spinning) until the last delete finished.
+    // Filtering locally makes each row disappear as soon as its own delete
+    // commits, even while later deletes are still in flight.
+    setInstalledItems((prev) =>
+      prev ? prev.filter((item) => item.id !== row.id) : null,
+    );
     onChange(
       writeOptionPath(
         options,
@@ -186,7 +207,8 @@ export function ModuleItemManager({
       ),
     );
     // deleteDictionary already dispatched YOMITAN_DICTIONARIES_CHANGED_EVENT;
-    // the window listener above calls refresh() — no second call needed.
+    // the window listener above calls refresh() to reconcile the canonical
+    // engine list (no second explicit call needed).
   }
 
   const rows = buildItemRows(installedItems, optionEntries);
