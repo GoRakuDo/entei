@@ -155,18 +155,33 @@ export async function listInstalledDictionariesCached(): Promise<
 }
 
 /**
+ * DOM event name fired whenever the installed-dictionary cache is invalidated.
+ *
+ * Dispatched on `window` by `invalidateInstalledDictionaries()`, so any mounted
+ * component holding a snapshot of the list (e.g. `ModuleItemManager`) can
+ * re-read without a polling interval or a manual refresh button.
+ */
+export const YOMITAN_DICTIONARIES_CHANGED_EVENT = 'yomitan:dictionaries-changed';
+
+/**
  * Drop the cached dictionary list.
  *
  * Called by every write below (import, enable/disable, delete) and by anything
  * else that changes what the engine holds: the cached list decides which
  * dictionaries a lookup may answer from, so a stale copy is a lookup that
  * ignores what the user just did.
+ *
+ * Also dispatches `YOMITAN_DICTIONARIES_CHANGED_EVENT` on `window` (browser
+ * only) so listeners can refresh their local snapshot immediately.
  */
 export function invalidateInstalledDictionaries(): void {
   cacheGeneration += 1;
   installedCache = null;
   installedAt = 0;
   installedLoad = null;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(YOMITAN_DICTIONARIES_CHANGED_EVENT));
+  }
 }
 
 /**

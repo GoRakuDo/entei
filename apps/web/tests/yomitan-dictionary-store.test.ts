@@ -14,6 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import {
   DEFINITIONS_COLLAPSIBLE_OPTIONS,
+  YOMITAN_DICTIONARIES_CHANGED_EVENT,
   createDictionaryOptionEntry,
   deleteDictionary,
   frequencyDictionaryNames,
@@ -430,5 +431,86 @@ describe('dictionary store — a write during a read', () => {
     const cached = await listInstalledDictionariesCached();
     expect(cached.map((entry) => entry.name)).toEqual(['After the write']);
     expect(reads).toBe(2);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * YOMITAN_DICTIONARIES_CHANGED_EVENT — the window event that tells mounted
+ * listeners (e.g. ModuleItemManager) to re-read. Every write path in the
+ * store must fire it exactly once via invalidateInstalledDictionaries().
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Install a minimal `window` global so `invalidateInstalledDictionaries()`
+ * reaches its `window.dispatchEvent(...)` branch. Bun test runs without a DOM,
+ * so without this stub the dispatch is silently skipped and the tests below
+ * would trivially pass against a no-op.
+ *
+ * The mock's prototype is `globalThis` so `window.__TAURI_INTERNALS__` (set by
+ * `installTauri`) remains visible to the tauri-bridge, which gates IPC calls
+ * through it.
+ */
+function mockWindow(): { events: string[] } {
+  const events: string[] = [];
+  const listeners: Record<string, Array<(e: unknown) => void>> = {};
+  Object.defineProperty(globalThis, 'window', {
+    value: Object.assign(Object.create(globalThis), {
+      addEventListener(type: string, fn: (e: unknown) => void) {
+        (listeners[type] ??= []).push(fn);
+      },
+      removeEventListener(type: string, fn: (e: unknown) => void) {
+        const list = listeners[type];
+        if (list) {
+          const idx = list.indexOf(fn);
+          if (idx !== -1) list.splice(idx, 1);
+        }
+      },
+      dispatchEvent(event: { type: string }) {
+        events.push(event.type);
+        for (const fn of listeners[event.type] ?? []) fn(event);
+        return true;
+      },
+    }),
+    configurable: true,
+    writable: true,
+  });
+  return { events };
+}
+
+function restoreWindow(): void {
+  delete (globalThis as Record<string, unknown>).window;
+}
+
+describe('YOMITAN_DICTIONARIES_CHANGED_EVENT dispatch', () => {
+  let events: string[];
+
+  beforeEach(() => {
+    events = mockWindow().events;
+  });
+  afterEach(() => {
+    restoreWindow();
+  });
+
+  it('fires on invalidateInstalledDictionaries', () => {
+    invalidateInstalledDictionaries();
+    expect(events).toEqual([YOMITAN_DICTIONARIES_CHANGED_EVENT]);
+  });
+
+  it('fires on toggleDictionary', async () => {
+    installTauri(() => null);
+    await toggleDictionary(SUMMARY.id, false);
+    expect(events).toEqual([YOMITAN_DICTIONARIES_CHANGED_EVENT]);
+  });
+
+  it('fires on deleteDictionary', async () => {
+    installTauri(() => null);
+    await deleteDictionary(SUMMARY.id);
+    expect(events).toEqual([YOMITAN_DICTIONARIES_CHANGED_EVENT]);
+  });
+
+  it('fires on importDictionaryFromPath', async () => {
+    installTauri(() => SUMMARY);
+    await importDictionaryFromPath('C:/dicts/jmdict.zip');
+    expect(events).toEqual([YOMITAN_DICTIONARIES_CHANGED_EVENT]);
   });
 });

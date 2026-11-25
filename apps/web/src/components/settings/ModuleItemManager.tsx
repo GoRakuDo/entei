@@ -40,6 +40,7 @@ import {
 import { isTauri, onYomitanImportProgress } from '@/features/player/tauri-bridge';
 import {
   DEFINITIONS_COLLAPSIBLE_OPTIONS,
+  YOMITAN_DICTIONARIES_CHANGED_EVENT,
   createDictionaryOptionEntry,
   deleteDictionary,
   importDictionaryFromPath,
@@ -88,14 +89,21 @@ export function ModuleItemManager({
   /** Whether an import is in flight, for the event handler below. A ref, not
    * state: the handler must not resubscribe (and so miss an event) per import. */
   const importingRef = useRef(false);
+  /** Monotonic generation counter: only the latest refresh() call may write
+   * installedItems, so a slow earlier response cannot overwrite a newer one. */
+  const refreshIdRef = useRef(0);
 
   /** Persisted option entries representing item order and toggles. */
   const optionEntries = readItemOptions(options);
 
   const refresh = useCallback(async () => {
+    const id = ++refreshIdRef.current;
     try {
-      setInstalledItems(await listInstalledDictionaries());
+      const items = await listInstalledDictionaries();
+      if (id !== refreshIdRef.current) return;
+      setInstalledItems(items);
     } catch (error) {
+      if (id !== refreshIdRef.current) return;
       // No engine (browser build) or the database is unreachable: report it as
       // an empty list rather than leaving a permanent skeleton on screen.
       setInstalledItems([]);
@@ -107,6 +115,17 @@ export function ModuleItemManager({
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  /* Re-read the list whenever any code invalidates the dictionary cache
+     (import, Dexie backup restore, toggle, delete). The event is dispatched
+     on `window` by `invalidateInstalledDictionaries()`. */
+  useEffect(() => {
+    const handler = () => void refresh();
+    window.addEventListener(YOMITAN_DICTIONARIES_CHANGED_EVENT, handler);
+    return () => {
+      window.removeEventListener(YOMITAN_DICTIONARIES_CHANGED_EVENT, handler);
+    };
   }, [refresh]);
 
   /* The engine publishes progress as it writes. Subscribed for the lifetime of
@@ -136,7 +155,8 @@ export function ModuleItemManager({
             createDictionaryOptionEntry(record.name),
           ]),
         );
-        await refresh();
+        // importDictionaryFromPath already dispatched YOMITAN_DICTIONARIES_CHANGED_EVENT;
+        // the window listener above calls refresh() — no second call needed.
       } finally {
         importingRef.current = false;
         setImportProgress(null);
@@ -165,7 +185,8 @@ export function ModuleItemManager({
         removeDictionaryOption(optionEntries, row.name),
       ),
     );
-    await refresh();
+    // deleteDictionary already dispatched YOMITAN_DICTIONARIES_CHANGED_EVENT;
+    // the window listener above calls refresh() — no second call needed.
   }
 
   const rows = buildItemRows(installedItems, optionEntries);
