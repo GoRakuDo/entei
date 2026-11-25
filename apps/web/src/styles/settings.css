@@ -1042,8 +1042,9 @@ body[data-page='settings'] .entei-main {
 }
 
 .entei-module-backup-reset-btn {
-  flex: 1 1 auto;
-  width: 100%;
+  flex: 0 0 auto;
+  width: 19rem;
+  height: var(--entei-touch-min);
   /* Light, vivid red: the shared `--color-destructive` (L 55%) is too dark against
      the dark `--entei-btn-color` surface to read as legible text (the same token
      works as a 2px border, not as a label). A brighter L keeps the destructive hue
@@ -1069,7 +1070,8 @@ body[data-page='settings'] .entei-main {
     gap: var(--entei-space-8);
   }
 
-  .entei-module-backup-group {
+  .entei-module-backup-group,
+  .entei-module-backup-reset-btn {
     width: 100%;
   }
 
