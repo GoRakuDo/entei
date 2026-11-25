@@ -7,6 +7,10 @@ Mirrors Yomitan's `getStandardFieldMarkers(type, 'ja')` from
 Used by /settings/ Anki Field Profiles card to render the marker
 selection dropdown beside each Field Value input.
 
+Entei extends Yomitan's Japanese set with the player-captured media
+markers `sentence-audio` (subtitle cue audio) and `video` (mined video
+clip), both resolved through the player's own inline templates.
+
 Markers are Handlebars field markers: `{expression}`, `{reading}`,
 `{glossary}`, etc. — inserted into field templates to tell AnkiConnect
 which captured data goes into which note field.
@@ -60,11 +64,13 @@ export const TERM_FIELD_MARKERS: readonly string[] = [
   'screenshot',
   'search-query',
   'sentence',
+  'sentence-audio',
   'sentence-furigana',
   'sentence-furigana-plain',
   'tags',
   'url',
   'url-plain',
+  'video',
 ] as const;
 
 /** Kanji (character) card markers — sorted alphabetically. */
@@ -91,12 +97,14 @@ export const KANJI_FIELD_MARKERS: readonly string[] = [
   'screenshot',
   'search-query',
   'sentence',
+  'sentence-audio',
   'sentence-furigana',
   'sentence-furigana-plain',
   'stroke-count',
   'tags',
   'url',
   'url-plain',
+  'video',
 ] as const;
 
 /**

@@ -1,5 +1,6 @@
 /**
- * Official default Anki field templates from Yomitan (upstream exact 494 lines).
+ * Official default Anki field templates from Yomitan
+ * (upstream 494 lines + Entei 2 partials: sentence-audio, video).
  */
 export const DEFAULT_CARD_TEMPLATES = `{{#*inline "glossary-single"}}
     {{~#unless brief~}}
@@ -216,6 +217,14 @@ export const DEFAULT_CARD_TEMPLATES = `{{#*inline "glossary-single"}}
     {{~#if definition.cloze}}{{{definition.cloze.sentence}}}{{/if~}}
 {{/inline}}
 
+{{#*inline "sentence-audio"}}
+    {{~#if (hasMedia "sentenceAudio")~}}
+        [sound:{{getMedia "sentenceAudio"}}]
+    {{~else if (hasMedia "audio")~}}
+        [sound:{{getMedia "audio"}}]
+    {{~/if~}}
+{{/inline}}
+
 {{#*inline "cloze-prefix"}}
     {{~#if definition.cloze}}{{{definition.cloze.prefix}}}{{/if~}}
 {{/inline}}
@@ -247,6 +256,12 @@ export const DEFAULT_CARD_TEMPLATES = `{{#*inline "glossary-single"}}
 {{#*inline "screenshot"}}
     {{~#if (hasMedia "screenshot")~}}
         <img src="{{getMedia "screenshot"}}" />
+    {{~/if~}}
+{{/inline}}
+
+{{#*inline "video"}}
+    {{~#if (hasMedia "video")~}}
+        <video autoplay loop muted playsinline src="{{getMedia "video"}}"></video>
     {{~/if~}}
 {{/inline}}
 

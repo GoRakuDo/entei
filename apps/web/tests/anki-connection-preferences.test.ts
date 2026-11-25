@@ -8,7 +8,29 @@ import {
   ANKI_CONNECTION_PREFS_KEY,
 } from '../src/features/player/anki-connection-preferences';
 
+import {
+  getStandardFieldMarkers,
+  TERM_FIELD_MARKERS,
+  KANJI_FIELD_MARKERS,
+} from '../src/modules/yomitan/anki/anki-markers';
+
 const STORAGE_KEY = ANKI_CONNECTION_PREFS_KEY;
+
+describe('getStandardFieldMarkers', () => {
+  it('includes the player-captured media markers for term and kanji cards', () => {
+    for (const type of ['term', 'kanji'] as const) {
+      const markers = getStandardFieldMarkers(type);
+      expect(markers).toContain('sentence-audio');
+      expect(markers).toContain('video');
+      // The list backs an alphabetically ordered dropdown.
+      expect([...markers]).toEqual([...markers].sort());
+      // Duplicates would render twice in the field dropdown.
+      expect(new Set(markers).size).toBe(markers.length);
+    }
+    expect(TERM_FIELD_MARKERS).toContain('sentence-audio');
+    expect(KANJI_FIELD_MARKERS).toContain('video');
+  });
+});
 
 describe('readAnkiConnectionPreferences', () => {
   beforeEach(() => localStorage.clear());
@@ -110,6 +132,102 @@ describe('readAnkiConnectionPreferences', () => {
       '<span class="group">{sentence-furigana}</span>',
     );
     expect(Object.keys(denchouProfile?.fields ?? {})).toHaveLength(23);
+    expect(denchouProfile?.fields.picture).toBe('{screenshot}');
+    expect(denchouProfile?.fields.sentenceAudio).toBe('{sentence-audio}');
+    expect(denchouProfile?.fields.wordAudio).toBe('{audio}');
+  });
+
+  it('upgrades legacy DenChou values but keeps user-edited values verbatim', () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...DEFAULT_ANKI_CONNECTION_PREFERENCES,
+        cardFormats: [
+          DEFAULT_ANKI_CONNECTION_PREFERENCES.cardFormats[0],
+          {
+            id: 'denchou',
+            name: 'DenChou',
+            type: 'term',
+            icon: 'small-circle',
+            deck: 'Default',
+            model: 'DenChou',
+            // Legacy defaults as persisted before the player media markers.
+            fields: {
+              picture: '{clipboard-image}',
+              sentenceAudio: '',
+              wordAudio: '{audio}',
+            },
+          },
+          {
+            id: 'denchou',
+            name: 'DenChou (edited)',
+            type: 'term',
+            icon: 'small-circle',
+            deck: 'Default',
+            model: 'DenChou',
+            // v2 profile whose media fields the user replaced by hand.
+            fieldsVersion: 2,
+            fields: {
+              picture: '<img src="{screenshot}">',
+              sentenceAudio: '{audio}',
+            },
+          },
+        ],
+      }),
+    );
+    const [legacy, edited] = readAnkiConnectionPreferences().cardFormats.slice(1);
+    expect(legacy?.fields.picture).toBe('{screenshot}');
+    expect(legacy?.fields.sentenceAudio).toBe('{sentence-audio}');
+    // Upgraded exactly once: the profile is stamped with the current version.
+    expect(legacy?.fieldsVersion).toBe(2);
+    expect(edited?.fieldsVersion).toBe(2);
+    // User-edited values are never rewritten to the default.
+    expect(edited?.fields.picture).toBe('<img src="{screenshot}">');
+    expect(edited?.fields.sentenceAudio).toBe('{audio}');
+  });
+
+  it('keeps user-cleared DenChou picture/sentenceAudio empty on later reads', () => {
+    const cleared = {
+      id: 'denchou',
+      name: 'DenChou',
+      type: 'term' as const,
+      icon: 'small-circle' as const,
+      deck: 'Default',
+      model: 'DenChou',
+      fields: { picture: '', sentenceAudio: '', wordAudio: '{audio}' },
+    };
+    // First read: a v1 profile still gets the one-time upgrade.
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...DEFAULT_ANKI_CONNECTION_PREFERENCES,
+        cardFormats: [
+          DEFAULT_ANKI_CONNECTION_PREFERENCES.cardFormats[0],
+          cleared,
+        ],
+      }),
+    );
+    const upgraded = readAnkiConnectionPreferences();
+    expect(upgraded.cardFormats[1]?.fields.sentenceAudio).toBe('{sentence-audio}');
+    expect(upgraded.cardFormats[1]?.fieldsVersion).toBe(2);
+
+    // The user then deliberately clears both media fields.
+    writeAnkiConnectionPreferences({
+      ...upgraded,
+      cardFormats: [
+        upgraded.cardFormats[0]!,
+        {
+          ...upgraded.cardFormats[1]!,
+          fields: { ...upgraded.cardFormats[1]!.fields, picture: '', sentenceAudio: '' },
+        },
+      ],
+    });
+
+    // Reloading must not resurrect the defaults (empty is a real choice now).
+    const reloaded = readAnkiConnectionPreferences().cardFormats[1];
+    expect(reloaded?.fields.picture).toBe('');
+    expect(reloaded?.fields.sentenceAudio).toBe('');
+    expect(reloaded?.fieldsVersion).toBe(2);
   });
 
   it('fills a legacy 4-field DenChou profile up to the full 23-field map', () => {
@@ -144,7 +262,8 @@ describe('readAnkiConnectionPreferences', () => {
     expect(denchou?.fields.sentenceFurigana).toBe('{sentence-furigana}');
     expect(denchou?.deck).toBe('Mining');
     // ...while missing fields gain their defaults.
-    expect(denchou?.fields.picture).toBe('{clipboard-image}');
+    expect(denchou?.fields.picture).toBe('{screenshot}');
+    expect(denchou?.fields.sentenceAudio).toBe('{sentence-audio}');
     expect(denchou?.fields.definition).toBe('{glossary}');
     expect(denchou?.fields.freqSort).toBe('{frequency-harmonic-rank}');
     expect(denchou?.fields.miscInfo).toBe('{document-title}');

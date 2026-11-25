@@ -79,6 +79,10 @@ export interface AnkiCardFormat {
   model: string;
   /** fieldName -> marker/value (e.g. { Front: '{expression}' }). */
   fields: Record<string, string>;
+  /** Schema version of `fields` (absent = 1). Bumped to 2 once the profile's
+   *  player-captured `sentenceAudio` default has been applied, so a value the
+   *  user later clears stays cleared instead of being revived on the next read. */
+  fieldsVersion?: number;
 }
 
 import { DEFAULT_CARD_TEMPLATES } from './default-card-templates';
@@ -114,9 +118,9 @@ const DEFAULT_DENCHOU_FIELDS: Record<string, string> = {
   audioCard: '',
   notes: '',
   hint: '',
-  picture: '{clipboard-image}',
+  picture: '{screenshot}',
   wordAudio: '{audio}',
-  sentenceAudio: '',
+  sentenceAudio: '{sentence-audio}',
   selectionText: '{popup-selection-text}',
   definition: '{glossary}',
   glossary: '{glossary}',
@@ -129,6 +133,39 @@ const DEFAULT_DENCHOU_FIELDS: Record<string, string> = {
   dictionaryPreference: '',
   'Note ID': '',
 };
+
+/**
+ * Current DenChou `fields` schema version. 1 (or absent) is the pre-player
+ * schema where an empty `sentenceAudio` still meant "legacy default"; 2 is
+ * written once the player marker has been applied, from then on an empty
+ * value is a deliberate user choice.
+ */
+const DENCHOU_FIELDS_VERSION = 2;
+
+/**
+ * Legacy DenChou defaults replaced by player-captured media.
+ *
+ * `picture` is upgraded only when it still holds the exact legacy literal
+ * `{clipboard-image}`, so an intentionally emptied field is never refilled.
+ * `sentenceAudio` cannot be told apart from "never set" by value alone (both
+ * are `''`), so it is upgraded once per profile and then stamped with
+ * `fieldsVersion: 2`.
+ *
+ * Pure: the incoming map is never mutated.
+ */
+function upgradeDenchouFields(
+  fields: Record<string, string>,
+  fieldsVersion: number,
+): Record<string, string> {
+  const next = { ...fields };
+  if (next.picture === '{clipboard-image}') {
+    next.picture = DEFAULT_DENCHOU_FIELDS.picture!;
+  }
+  if (fieldsVersion < DENCHOU_FIELDS_VERSION && next.sentenceAudio === '') {
+    next.sentenceAudio = DEFAULT_DENCHOU_FIELDS.sentenceAudio!;
+  }
+  return next;
+}
 
 /** Seed the two default card-format profiles (Default + DenChou). */
 export const DEFAULT_CARD_FORMATS: AnkiCardFormat[] = [
@@ -149,6 +186,8 @@ export const DEFAULT_CARD_FORMATS: AnkiCardFormat[] = [
     deck: 'Default',
     model: 'DenChou',
     fields: { ...DEFAULT_DENCHOU_FIELDS },
+    // Seeded with the current schema: clearing a field here sticks.
+    fieldsVersion: DENCHOU_FIELDS_VERSION,
   },
 ];
 
@@ -225,7 +264,8 @@ function isAnkiConnectionPreferences(
  * profile cannot poison the whole list (matches enumOr's per-field policy).
  */
 function sanitizeCardFormats(value: unknown): AnkiCardFormat[] {
-  if (!Array.isArray(value)) return DEFAULT_CARD_FORMATS.map((f) => ({ ...f }));
+  if (!Array.isArray(value))
+    return DEFAULT_CARD_FORMATS.map((f) => ({ ...f, fields: { ...f.fields } }));
   const formats: AnkiCardFormat[] = [];
   for (const entry of value) {
     if (typeof entry !== 'object' || entry === null) continue;
@@ -237,6 +277,11 @@ function sanitizeCardFormats(value: unknown): AnkiCardFormat[] {
         if (typeof val === 'string') fields[key] = val;
       }
     }
+    const storedVersion =
+      typeof e.fieldsVersion === 'number' && Number.isFinite(e.fieldsVersion)
+        ? e.fieldsVersion
+        : 1;
+    const denchou = e.id === 'denchou';
     formats.push({
       id: e.id,
       name: e.name,
@@ -246,11 +291,16 @@ function sanitizeCardFormats(value: unknown): AnkiCardFormat[] {
       model: typeof e.model === 'string' ? e.model : '',
       // DenChou: fill in any fields added after the user first saved this
       // profile, so a legacy 4-field row gains the full map while every
-      // user-edited value still wins over its default.
-      fields:
-        e.id === 'denchou'
-          ? { ...DEFAULT_DENCHOU_FIELDS, ...fields }
-          : fields,
+      // user-edited value still wins over its default. The upgrade is
+      // stamped with the current schema version so it only happens once.
+      fields: denchou
+        ? upgradeDenchouFields({ ...DEFAULT_DENCHOU_FIELDS, ...fields }, storedVersion)
+        : fields,
+      ...(denchou
+        ? { fieldsVersion: DENCHOU_FIELDS_VERSION }
+        : storedVersion > 1
+          ? { fieldsVersion: storedVersion }
+          : {}),
     });
   }
   // Keep at least one profile — an empty list would leave the card un-usable.
