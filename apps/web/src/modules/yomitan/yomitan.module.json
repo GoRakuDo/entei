@@ -919,8 +919,8 @@
 
     {
       "section": "backup",
-      "label": "Backup",
-      "description": "Backup and restore Yomitan dictionaries and settings.",
+      "label": "Backup and Reset",
+      "description": "Backup, restore, and reset Yomitan dictionaries and settings.",
       "rows": [
         {
           "layout": "backup",

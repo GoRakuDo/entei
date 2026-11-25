@@ -469,6 +469,12 @@ export const id: Dictionary = {
     iconBigSquare: 'Persegi Besar',
     iconBigDiamond: 'Wajik Besar',
   },
+  ankiMiscellaneous: {
+    title: 'Konfigurasi Lainnya',
+    yomitanModuleControlLabel: 'Kontrol Modul Yomitan',
+    yomitanModuleControlDescription:
+      'Izinkan Modul Yomitan menerapkan perubahan ke Pengaturan Anki.',
+  },
   language: {
     selectLabel: 'Bahasa',
     comboboxLabel: 'Pilih bahasa',

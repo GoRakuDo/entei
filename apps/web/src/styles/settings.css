@@ -1025,6 +1025,43 @@ body[data-page='settings'] .entei-main {
   opacity: 0.9;
 }
 
+/* --------------------------------------------------------------------------
+   BACKUP + RESET — the reset row.
+   --------------------------------------------------------------------------
+   Same row shape as the Import | Export rows above, but its single button is
+   full-width and carries destructive TEXT on the standard action-button
+   surface: resetting is a data-clearing action, so the label reads red
+   (`--color-destructive`, OKLCH per #1621) while the background stays the
+   shared `--entei-btn-color` / `--entei-accent-hover` pair (spec: "same button
+   background, red text"). The label color is re-declared on hover / focus /
+   disabled because `.entei-action-btn:hover` would otherwise turn it gold — a
+   destructive action must never read as the primary one.
+   Spacing tokens only (#1641); OKLCH only (#1621); no negative margins (#2471). */
+.entei-module-backup-row--reset {
+  margin-top: var(--entei-space-8);
+}
+
+.entei-module-backup-reset-btn {
+  flex: 1 1 auto;
+  width: 100%;
+  /* Light, vivid red: the shared `--color-destructive` (L 55%) is too dark against
+     the dark `--entei-btn-color` surface to read as legible text (the same token
+     works as a 2px border, not as a label). A brighter L keeps the destructive hue
+     while holding contrast on the button. OKLCH per #1621. */
+  color: oklch(75% 0.22 25deg);
+}
+
+.entei-module-backup-reset-btn:hover,
+.entei-module-backup-reset-btn:focus-visible,
+.entei-module-backup-reset-btn:active {
+  color: oklch(75% 0.22 25deg);
+}
+
+.entei-module-backup-reset-btn:disabled {
+  color: oklch(75% 0.22 25deg);
+  opacity: 0.45;
+}
+
 @media (max-width: 767px) {
   .entei-module-backup-row {
     flex-direction: column;

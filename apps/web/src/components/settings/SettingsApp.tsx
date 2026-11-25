@@ -32,6 +32,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnkiConnectionCard } from '@/components/settings/AnkiConnectionCard';
 import { AnkiCardManagementsCard } from '@/components/settings/AnkiCardManagementsCard';
 import { AnkiFieldProfilesCard } from '@/components/settings/AnkiFieldProfilesCard';
+import { AnkiMiscellaneousCard } from '@/components/settings/AnkiMiscellaneousCard';
 import {
   ArrowLeft,
   Blocks,
@@ -625,6 +626,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
             <AnkiConnectionCard dict={dict.ankiConnection} notEditable={dict.yomitanSettings.notEditable} />
             <AnkiCardManagementsCard dict={dict.ankiCardManagements} />
             <AnkiFieldProfilesCard dict={dict.ankiFieldProfiles} />
+            <AnkiMiscellaneousCard dict={dict.ankiMiscellaneous} />
           </div>
         )}
 

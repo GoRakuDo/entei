@@ -219,6 +219,7 @@ describe('writeAnkiConnectionPreferences', () => {
       'screenshotFormat',
       'server',
       'suspendNewCards',
+      'yomitanModuleControl',
     ]);
   });
 

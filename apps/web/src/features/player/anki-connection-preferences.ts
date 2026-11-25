@@ -39,6 +39,9 @@ export interface AnkiConnectionPreferences {
   screenshotFormat: ScreenshotFormat;
   /** Anki card deck/format profiles (deck + model + field markers per profile). */
   cardFormats: AnkiCardFormat[];
+  /** Let the Yomitan module apply its own Anki settings to this page
+   *  (import / reset of Yomitan settings also carries the Anki values over). */
+  yomitanModuleControl: boolean;
 }
 
 /** Scope the duplicate search is run against. */
@@ -135,6 +138,7 @@ export const DEFAULT_ANKI_CONNECTION_PREFERENCES: AnkiConnectionPreferences = {
   cardTemplates: DEFAULT_CARD_TEMPLATES,
   screenshotFormat: 'png',
   cardFormats: DEFAULT_CARD_FORMATS,
+  yomitanModuleControl: false,
 };
 
 const DUPLICATE_SCOPES: readonly DuplicateScope[] = [
@@ -181,6 +185,10 @@ function isAnkiConnectionPreferences(
     typeof v.suspendNewCards === 'boolean' &&
     OPEN_NOTE_VIEWERS.includes(v.openNoteViewer as OpenNoteViewer) &&
     typeof v.cardTemplates === 'string'
+    // NOTE: `yomitanModuleControl` is deliberately NOT required here (same
+    // policy as `screenshotFormat` / `cardFormats`) so a row persisted before
+    // the field existed still validates and gains `false` via the default in
+    // readAnkiConnectionPreferences instead of falling back to ALL defaults.
   );
 }
 
@@ -261,6 +269,10 @@ export function readAnkiConnectionPreferences(): AnkiConnectionPreferences {
         SCREENSHOT_FORMATS,
         DEFAULT_ANKI_CONNECTION_PREFERENCES.screenshotFormat,
       ),
+      yomitanModuleControl:
+        typeof parsed.yomitanModuleControl === 'boolean'
+          ? parsed.yomitanModuleControl
+          : DEFAULT_ANKI_CONNECTION_PREFERENCES.yomitanModuleControl,
       cardFormats:
         parsed.cardFormats === undefined
           ? DEFAULT_CARD_FORMATS.map((f) => ({ ...f, fields: { ...f.fields } }))

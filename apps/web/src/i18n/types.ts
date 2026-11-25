@@ -505,6 +505,12 @@ export interface Dictionary {
     templatesDescription: string;
     resetTemplatesLabel: string;
   };
+  /** /settings/ Anki page — “Miscellaneous Configuration” card (Yomitan bridge). */
+  ankiMiscellaneous: {
+    title: string;
+    yomitanModuleControlLabel: string;
+    yomitanModuleControlDescription: string;
+  };
   /** /settings/ Anki page — “Anki Field Profiles & Formats” card (deck profiles). */
   ankiFieldProfiles: {
     /** Card heading title (Lucide FileStack). */

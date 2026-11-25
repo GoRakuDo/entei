@@ -470,6 +470,12 @@ export const en: Dictionary = {
     iconBigSquare: 'Big Square',
     iconBigDiamond: 'Big Diamond',
   },
+  ankiMiscellaneous: {
+    title: 'Miscellaneous Configuration',
+    yomitanModuleControlLabel: 'Yomitan Module Control',
+    yomitanModuleControlDescription:
+      'Allowing Yomitan Module to apply changes to Anki Settings.',
+  },
   language: {
     selectLabel: 'Language',
     comboboxLabel: 'Select language',

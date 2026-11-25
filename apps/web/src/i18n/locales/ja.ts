@@ -467,6 +467,12 @@ export const ja: Dictionary = {
     iconBigSquare: '大四角形',
     iconBigDiamond: '大ひし形',
   },
+  ankiMiscellaneous: {
+    title: 'その他の設定',
+    yomitanModuleControlLabel: 'Yomitanモジュール連動',
+    yomitanModuleControlDescription:
+      'YomitanモジュールからのAnki設定の変更・復元を許可します。',
+  },
   language: {
     selectLabel: '言語',
     comboboxLabel: '言語を選択',

@@ -128,8 +128,12 @@ import {
 import {
   buildSettingsExportPayload,
   importSettingsFromJson,
+  resetSettings,
   traceSettingsExported,
 } from '@/modules/yomitan/settings-backup';
+import {
+  readAnkiConnectionPreferences,
+} from '@/features/player/anki-connection-preferences';
 import {
   importDictionaryFromPath,
   invalidateInstalledDictionaries,
@@ -1159,6 +1163,47 @@ function BackupRow({
   const settingsBusy =
     settingsImportPercent !== null || settingsExportPercent !== null;
 
+  // Reset runs instantly (no percent stream), but a `Resetting…` label keeps
+  // the button from looking dead during the await, so it carries its own busy
+  // flag rather than reusing `settingsBusy` (which only tracks import/export).
+  const [resetting, setResetting] = useState(false);
+
+  /**
+   * Reset Yomitan settings (and, when the Yomitan→Anki bridge is on, this
+   * app's Anki Connection card) back to host defaults.
+   *
+   * Confirm first: like upstream, a reset discards every Yomitan setting at
+   * once, and dictionaries are unaffected either way.
+   */
+  async function handleResetSettings(): Promise<void> {
+    const ankiControlled = readAnkiConnectionPreferences().yomitanModuleControl === true;
+    const message = ankiControlled
+      ? 'Reset Yomitan settings to defaults? Anki settings will also be reset (Yomitan Module Control is on).'
+      : 'Reset Yomitan settings to defaults?';
+    if (typeof window !== 'undefined' && !window.confirm(message)) return;
+    setResetting(true);
+    try {
+      // resetSettings itself restores this app's Anki defaults when the bridge is
+      // on (keeping the switch ON), so the Anki card needs no separate write here
+      // — one reset path, not two.
+      await resetSettings();
+      // Re-seed the renderer's in-memory tree from what was just persisted so
+      // every field on the page drops back to its default without a reload.
+      onOptionsChange(readYomitanOptions());
+      toast.success('Yomitan settings reset.');
+    } catch (error) {
+      const message =
+        typeof error === 'string'
+          ? error
+          : error instanceof Error
+            ? error.message
+            : 'Reset failed.';
+      toast.error(message);
+    } finally {
+      setResetting(false);
+    }
+  }
+
   return (
     <div className="entei-module-field" data-layout="backup">
       <input
@@ -1249,6 +1294,16 @@ function BackupRow({
                 : `Exporting ${settingsExportPercent}%`}
             </SettingsButton>
           </div>
+        </div>
+        <div className="entei-module-backup-row entei-module-backup-row--reset">
+          <span className="entei-module-backup-row-label">Reset Settings</span>
+          <SettingsButton
+            className="entei-module-backup-reset-btn"
+            disabled={resetting}
+            onClick={() => void handleResetSettings()}
+          >
+            {resetting ? 'Resetting…' : 'Reset'}
+          </SettingsButton>
         </div>
       </div>
     </div>
