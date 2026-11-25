@@ -1015,6 +1015,16 @@ body[data-page='settings'] .entei-main {
   border-left: 1px solid oklch(100% 0 0deg / 0.08);
 }
 
+.entei-module-backup-btn[data-busy='true']:disabled {
+  /* Overriding the base .entei-action-btn:disabled opacity (0.45) so the ONE
+     button actually running an operation (labelled "Importing 42%" via its
+     `data-busy` flag) stays legible in gold while it works. The idle half of
+     the row stays dim above, so which button is moving is obvious at a
+     glance. */
+  color: var(--entei-status-locked);
+  opacity: 0.9;
+}
+
 @media (max-width: 767px) {
   .entei-module-backup-row {
     flex-direction: column;

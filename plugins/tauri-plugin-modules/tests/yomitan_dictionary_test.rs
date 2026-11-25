@@ -955,10 +955,10 @@ fn build_dexie_backup_json() -> String {
         concat!(
             "{{\"formatName\": \"dexie\", \"formatVersion\": 1,\n",
             " \"databaseName\": \"/dictionaries\", \"databaseVersion\": 20,\n",
-            " \"tables\": [{{\"name\": \"terms\", \"schema\": \"id\", \"rowCount\": 2}}],\n",
-            " \"data\": {{\"databaseName\": \"/dictionaries\", \"data\": [\n",
-            "  {DICTIONARIES},\n {TERMS},\n {TERM_META},\n {KANJI},\n {TAG_META},\n {KANJI_META}\n",
-            " ]}}}}"
+            " \"data\": {{\"databaseName\": \"/dictionaries\", \"tables\": [{{\"name\": \"terms\", \"schema\": \"id\", \"rowCount\": 2}}],\n",
+            "  \"data\": [\n",
+            "   {DICTIONARIES},\n {TERMS},\n {TERM_META},\n {KANJI},\n {TAG_META},\n {KANJI_META}\n",
+            "  ]}}}}"
         ),
         DICTIONARIES = dictionaries,
         TERMS = terms,

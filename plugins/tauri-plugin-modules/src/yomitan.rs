@@ -2487,12 +2487,24 @@ pub fn export_dictionaries_to_dexie_json_with_progress(
     Ok(dictionaries_count.max(0) as u64)
 }
 /// Position bookkeeping for one streamed backup: how many rows of the
-/// current store have landed (for the progress label) and, in the rare case
-/// a table's `tableName` key trails its `rows`, the one row held until the
-/// name is known.
+/// current store have landed (for the progress label), the row count the
+/// export's own `tables[].rowCount` metadata promised (for a linear progress
+/// bar), and, in the rare case a table's `tableName` key trails its `rows`,
+/// the one row held until the name is known.
 #[derive(Default)]
 struct DexieStreamContext {
     rows: u64,
+    /// Sum of the export's `tables[].rowCount` metadata. Read from the export's
+    /// `data.tables` block (which precedes `data.data` in a real export), so it
+    /// is known before the first row streams. Zero means "unknown" and falls
+    /// back to the asymptotic curve in [`dexie_percent`].
+    total_rows: u64,
+    /// Highest whole percent already emitted for the CURRENT table. Reset to 0
+    /// at each table boundary so a following table (with a smaller rowCount of
+    /// its own) can climb its own 0..99 again instead of being pinned by the
+    /// previous table's last percent — [`dexie_percent`] is monotonic WITHIN a
+    /// table, and the boundary is the one place a drop is correct.
+    reported_percent: u32,
     buffered: Option<Value>,
 }
 
@@ -2501,14 +2513,117 @@ impl DexieStreamContext {
         self.buffered.take()
     }
 }
+
+/// The top-level `data.tables` ARRAY — one `{name, schema, rowCount}` entry per
+/// store. Only `rowCount` is read; every other key is skipped by value. The
+/// array is visited one element at a time through [`serde::de::SeqAccess`], so
+/// the multi-megabyte metadata block is never buffered whole, and the running
+/// total lands on [`DexieStreamContext::total_rows`] once the array closes.
+///
+/// `tables` lives INSIDE the `data` object (both in a real Dexie export and in
+/// this engine's own export), which precedes `data.data` — so the total is
+/// known before the first row streams.
+struct DexieTablesMeta<'a> {
+    context: &'a mut DexieStreamContext,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for DexieTablesMeta<'_> {
+    type Value = ();
+    fn deserialize<D: serde::Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Self::Value, D::Error> {
+        deserializer.deserialize_seq(self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for DexieTablesMeta<'_> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a dexie tables metadata array")
+    }
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(
+        self,
+        mut seq: A,
+    ) -> Result<Self::Value, A::Error> {
+        let mut total: u64 = 0;
+        while let Some(table) = seq.next_element::<DexieTableRowCount>()? {
+            total = total.saturating_add(table.row_count.get());
+        }
+        self.context.total_rows = total;
+        Ok(())
+    }
+}
+
+/// ONE entry of the `tables` metadata array. `rowCount` is optional (older or
+/// hand-written exports omit it) and null is treated the same as missing; both
+/// count as zero rows.
+#[derive(Deserialize)]
+struct DexieTableRowCount {
+    #[serde(default, rename = "rowCount")]
+    row_count: DexieRowCount,
+}
+
+/// `rowCount` as a u64, tolerant of anything a hand-written or third-party
+/// export may carry: a missing/null value, a signed encoding (some tools write
+/// `-1` for "unknown"), a float (`120.0`), or a numeric string (`"120"`).
+/// Anything unparseable counts as zero rather than failing the import — the
+/// total is only a progress-bar hint, so a bad single value must never abort a
+/// multi-gigabyte stream.
+#[derive(Debug, Default, Clone, Copy)]
+struct DexieRowCount(u64);
+
+impl DexieRowCount {
+    fn get(self) -> u64 {
+        self.0
+    }
+}
+
+impl<'de> serde::de::Deserialize<'de> for DexieRowCount {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct RowCountVisitor;
+        impl<'de> serde::de::Visitor<'de> for RowCountVisitor {
+            type Value = DexieRowCount;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a row count")
+            }
+            fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<Self::Value, E> {
+                Ok(DexieRowCount(value))
+            }
+            fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<Self::Value, E> {
+                Ok(DexieRowCount(value.max(0) as u64))
+            }
+            // A float (`120.0`) truncates toward zero; negatives clamp to 0.
+            fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<Self::Value, E> {
+                Ok(DexieRowCount(value.max(0.0) as u64))
+            }
+            // A numeric string (`"120"`) parses; anything else counts as zero.
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                let trimmed = value.trim();
+                let parsed = trimmed.parse::<i64>().unwrap_or(0);
+                Ok(DexieRowCount(parsed.max(0) as u64))
+            }
+            fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(DexieRowCount(0))
+            }
+            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(DexieRowCount(0))
+            }
+        }
+        deserializer.deserialize_any(RowCountVisitor)
+    }
+}
+
 /// Parse the top-level object of a Dexie export. Every key is handled through
-/// ONE serde deserializer — `formatName`/`formatVersion` are validated, the big
-/// `data` object is streamed via [`stream_dexie_data`], and sibling keys (the
-/// multi-megabyte `tables` metadata block) are skipped by value, never buffered
-/// whole. Routing every read through serde (rather than mixing manual
-/// peek/consume with `Deserializer::from_reader`) is deliberate: serde's own
-/// read-ahead buffer otherwise desyncs a hand-rolled position walker and makes
-/// it reject valid input as "malformed".
+/// ONE serde deserializer — `formatName`/`formatVersion` are validated, the
+/// `data` object is streamed via [`stream_dexie_data`] (whose `tables` metadata
+/// block feeds [`DexieTablesMeta`] and whose `data` array is streamed one table
+/// at a time), and the remaining sibling keys (`databaseName`, …) are skipped
+/// by value, never buffered whole. Routing every read through
+/// serde (rather than mixing manual peek/consume with
+/// `Deserializer::from_reader`) is deliberate: serde's own read-ahead buffer
+/// otherwise desyncs a hand-rolled position walker and makes it reject valid
+/// input as "malformed".
 fn stream_dexie_document<R: BufRead>(
     reader: R,
     import: &mut DexieImport<'_>,
@@ -2578,7 +2693,7 @@ impl<'de> serde::de::Visitor<'de> for DexieDocument<'_, '_> {
                     })?;
                 }
                 _ => {
-                    // `databaseName`, the `tables` metadata block, etc.
+                    // `databaseName`, etc.
                     map.next_value::<IgnoredAny>()?;
                 }
             }
@@ -2590,9 +2705,11 @@ impl<'de> serde::de::Visitor<'de> for DexieDocument<'_, '_> {
     }
 }
 
-/// The top-level `data` OBJECT — `{ databaseName, data:[ …tables… ] }`. The
-/// small sibling keys are skipped via [`IgnoredAny`]; the big inner `data`
-/// array is streamed one table entry at a time.
+/// The top-level `data` OBJECT — `{ databaseName, databaseVersion, tables:[…],
+/// data:[ …tables… ] }`. The small sibling keys (`databaseName`,
+/// `databaseVersion`) are skipped via [`IgnoredAny`]; the `tables` metadata is
+/// streamed for its `rowCount` totals (see [`DexieTablesMeta`]); the big inner
+/// `data` array is streamed one table entry at a time.
 struct DexieData<'a, 'b> {
     import: &'a mut DexieImport<'b>,
     context: &'a mut DexieStreamContext,
@@ -2626,6 +2743,16 @@ impl<'de> serde::de::Visitor<'de> for DexieData<'_, '_> {
                     import: &mut self.import,
                     context: &mut self.context,
                     on_progress: &mut self.on_progress,
+                })?;
+            } else if key == "tables" {
+                // The export's per-store metadata block, one `{name, schema,
+                // rowCount}` per store. Only `rowCount` is read (streamed one
+                // element at a time, so the block is never buffered whole); the
+                // running total is what makes the progress bar linear over the
+                // real row count. A real export writes `tables` BEFORE `data`,
+                // so the total is known before the first row streams.
+                map.next_value_seed(DexieTablesMeta {
+                    context: &mut self.context,
                 })?;
             } else {
                 map.next_value::<IgnoredAny>()?;
@@ -2711,6 +2838,10 @@ impl<'de> serde::de::Visitor<'de> for DexieTableEntry<'_, '_> {
         mut map: A,
     ) -> Result<Self::Value, A::Error> {
         let mut table: Option<String> = None;
+        // A fresh table starts its own 0..99 climb: drop the previous table's
+        // last emitted percent so a smaller following store is not pinned below
+        // it (see `DexieStreamContext::reported_percent`).
+        self.context.reported_percent = 0;
         while let Some(key) = map.next_key::<String>()? {
             if key == "rows" {
                 map.next_value_seed(DexieRowSeq {
@@ -2772,7 +2903,6 @@ impl<'de> serde::de::Visitor<'de> for DexieRowSeq<'_, '_> {
         self,
         mut seq: A,
     ) -> Result<Self::Value, A::Error> {
-        let mut reported_percent = 0u32;
         while let Some(row) = seq.next_element::<Value>()? {
             let Some(table) = self.table.as_deref() else {
                 // `tableName` trails `rows`: hold the one row on the context
@@ -2788,11 +2918,15 @@ impl<'de> serde::de::Visitor<'de> for DexieRowSeq<'_, '_> {
             self.context.rows += 1;
             // Emit only when the whole-percent moves: a 3M-row table would
             // otherwise fire millions of near-identical events and freeze the
-            // UI. `dexie_percent` is monotonic, so this is at most 100 emits
-            // per table.
-            let percent = dexie_percent(self.context.rows, reported_percent);
-            if percent != reported_percent {
-                reported_percent = percent;
+            // UI. `dexie_percent` is monotonic (against this table's
+            // `reported_percent`), so this is at most 100 emits per table.
+            let percent = dexie_percent(
+                self.context.rows,
+                self.context.total_rows,
+                self.context.reported_percent,
+            );
+            if percent != self.context.reported_percent {
+                self.context.reported_percent = percent;
                 (self.on_progress)(ImportProgress {
                     percent,
                     current: self.context.rows as u32,
@@ -2807,14 +2941,20 @@ impl<'de> serde::de::Visitor<'de> for DexieRowSeq<'_, '_> {
 
 /// The whole-percent a streamed row count maps to, monotonic by construction.
 ///
-/// The export's own `tables[].rowCount` metadata would give an exact total, but
-/// reading it costs a first pass over a multi-gigabyte file. Instead the percent
-/// follows the running row count on a curve that reaches only 99 while streaming
-/// (the caller emits an explicit 100% once the document closes), so the bar
-/// moves early and never jumps backwards.
-fn dexie_percent(rows: u64, reported: u32) -> u32 {
-    // 100 * rows / (rows + 1000): fast early movement, asymptotic to 100.
-    let percent = ((rows.saturating_mul(100)) / (rows.saturating_add(1000))) as u32;
+/// When the export's own `tables[].rowCount` metadata gave a total (read up
+/// front from the header block, see [`DexieTablesMeta`]) the percent is the
+/// exact linear fraction of that total, so the bar counts smoothly from 0 to
+/// 99 across the whole file. Without a total it falls back to the old
+/// asymptotic curve, which reaches 99 early but never jumps backwards. The
+/// caller emits an explicit 100% once the document closes.
+fn dexie_percent(rows: u64, total_rows: u64, reported: u32) -> u32 {
+    let percent = if total_rows > 0 {
+        // Linear: 100 * rows / total_rows.
+        ((rows.saturating_mul(100)) / total_rows) as u32
+    } else {
+        // 100 * rows / (rows + 1000): fast early movement, asymptotic to 100.
+        ((rows.saturating_mul(100)) / (rows.saturating_add(1000))) as u32
+    };
     percent.clamp(reported, 99)
 }
 
@@ -2995,4 +3135,61 @@ fn parse_tag(value: &Value) -> Option<TagRow> {
         notes: string_field(object, "notes").unwrap_or_default(),
         score: to_i64(object.get("score")),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dexie_percent_is_linear_against_a_known_total() {
+        // With a total the bar is the exact fraction of that total, so it
+        // climbs steadily across the WHOLE file instead of pegging at 99
+        // after the first few percent.
+        let total = 1_000_000;
+        assert_eq!(dexie_percent(0, total, 0), 0);
+        assert_eq!(dexie_percent(10_000, total, 0), 1);
+        assert_eq!(dexie_percent(250_000, total, 0), 25);
+        assert_eq!(dexie_percent(500_000, total, 0), 50);
+        assert_eq!(dexie_percent(990_000, total, 0), 99);
+        // Streaming caps at 99; the caller emits the explicit 100 on close.
+        assert_eq!(dexie_percent(total, total, 0), 99);
+    }
+
+    #[test]
+    fn dexie_percent_falls_back_to_a_curve_without_a_total() {
+        // No metadata: the old asymptotic curve still moves early and caps.
+        assert_eq!(dexie_percent(0, 0, 0), 0);
+        assert_eq!(dexie_percent(1_000, 0, 0), 50);
+        assert_eq!(dexie_percent(9_000, 0, 0), 90);
+        assert_eq!(dexie_percent(100_000, 0, 0), 99);
+    }
+
+    #[test]
+    fn dexie_percent_is_monotonic_and_never_regresses() {
+        let mut previous = 0;
+        for rows in [0, 1, 50, 500, 5_000, 50_000, 500_000, 5_000_000] {
+            for total in [0, 1_000, 5_000_000] {
+                let percent = dexie_percent(rows, total, previous);
+                assert!(percent >= previous, "{percent} regressed below {previous}");
+                assert!(percent <= 99);
+                previous = percent;
+            }
+        }
+    }
+
+    #[test]
+    fn dexie_tables_meta_sums_row_count_and_tolerates_missing_values() {
+        // `rowCount` present on some stores, missing/null on others.
+        let mut de = serde_json::Deserializer::from_str(
+            r#"[{"name": "terms", "rowCount": 120},
+                {"name": "kanji"},
+                {"name": "tags", "rowCount": null}]"#,
+        );
+        let mut context = DexieStreamContext::default();
+        serde::Deserializer::deserialize_seq(&mut de, DexieTablesMeta { context: &mut context })
+            .expect("tables metadata");
+        // Only the one real count lands; missing and null both count as zero.
+        assert_eq!(context.total_rows, 120);
+    }
 }

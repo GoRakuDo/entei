@@ -1152,7 +1152,9 @@ function BackupRow({
 
   // Per-row busy: while either operation in a row runs, BOTH its buttons disable
   // (no second click mid-stream). `NN%` swaps the label so the button itself is
-  // the progress indicator.
+  // the progress indicator. Only the button actually running an operation carries
+  // `data-busy`, so the gold progress styling lands on the one moving and the
+  // other (idle, disabled) half stays dim rather than looking tappable.
   const dictBusy = dictImportPercent !== null || dictExportPercent !== null;
   const settingsBusy =
     settingsImportPercent !== null || settingsExportPercent !== null;
@@ -1184,6 +1186,7 @@ function BackupRow({
             <SettingsButton
               className="entei-module-backup-btn entei-module-backup-btn--left"
               disabled={dictBusy}
+              data-busy={dictImportPercent !== null ? 'true' : undefined}
               aria-label={
                 dictImportPercent === null
                   ? 'Import Yomitan dictionaries'
@@ -1196,6 +1199,7 @@ function BackupRow({
             <SettingsButton
               className="entei-module-backup-btn entei-module-backup-btn--right"
               disabled={dictBusy}
+              data-busy={dictExportPercent !== null ? 'true' : undefined}
               aria-label={
                 dictExportPercent === null
                   ? 'Export Yomitan dictionaries'
@@ -1217,6 +1221,7 @@ function BackupRow({
             <SettingsButton
               className="entei-module-backup-btn entei-module-backup-btn--left"
               disabled={settingsBusy}
+              data-busy={settingsImportPercent !== null ? 'true' : undefined}
               aria-label={
                 settingsImportPercent === null
                   ? 'Import Yomitan settings'
@@ -1231,6 +1236,7 @@ function BackupRow({
             <SettingsButton
               className="entei-module-backup-btn entei-module-backup-btn--right"
               disabled={settingsBusy}
+              data-busy={settingsExportPercent !== null ? 'true' : undefined}
               aria-label={
                 settingsExportPercent === null
                   ? 'Export Yomitan settings'

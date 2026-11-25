@@ -23,7 +23,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
   createDefaultOptions,
   yomitanSettingsTree,
@@ -1635,6 +1635,17 @@ describe('ModuleSettingsRenderer — the Backup rows', () => {
       container.querySelectorAll('.entei-module-backup-btn--right').length,
     ).toBe(2);
   });
+
+  it('marks no backup button busy while every operation is idle', () => {
+    const { container } = renderSettings();
+    openSection(/Backup/i);
+    // Idle: the gold `data-busy` progress styling must land on NOTHING, so all
+    // four halves read as their normal dim-disabled-vs-enabled selves.
+    expect(
+      container.querySelectorAll('.entei-module-backup-btn[data-busy="true"]')
+        .length,
+    ).toBe(0);
+  });
 });
 
 describe('ModuleSettingsRenderer — the Backup export sink', () => {
@@ -1671,6 +1682,42 @@ describe('ModuleSettingsRenderer — the Backup export sink', () => {
     dialogSpies.save.mockReset();
     toastSpies.success.mockReset();
     toastSpies.error.mockReset();
+  });
+
+  it('marks only the RUNNING operation busy, not its idle row-mate', async () => {
+    installTauri();
+    // Hold the OS save dialog open: the settings export is genuinely in flight
+    // (its percent is 0 and non-null) for as long as this promise is pending.
+    let resolveSave: (value: string | null) => void = () => {};
+    dialogSpies.save.mockReturnValue(
+      new Promise<string | null>((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
+    renderSettings();
+    openSection(/Backup/i);
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Export Yomitan settings' }),
+      );
+    });
+
+    const busyButtons = () =>
+      screen
+        .getAllByRole('button', { name: /Yomitan settings/ })
+        .filter((button) => button.getAttribute('data-busy') === 'true');
+    // Exactly ONE half is gold (the exporting one, labelled "Exporting 0%");
+    // its idle Import row-mate stays dim, so which button moves is obvious.
+    await waitFor(() => expect(busyButtons()).toHaveLength(1));
+    expect(busyButtons()[0]!.textContent).toMatch(/Exporting \d+%/);
+
+    // Release the dialog (a cancel): the export settles back to idle and drops
+    // its busy flag, so the row returns to its resting appearance.
+    await act(async () => {
+      resolveSave(null);
+    });
+    await waitFor(() => expect(busyButtons()).toHaveLength(0));
   });
 
   it('asks the OS where to save, and stays quiet when the user cancels', async () => {
