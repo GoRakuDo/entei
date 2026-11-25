@@ -75,6 +75,23 @@ import type { Dictionary } from '@/i18n/types';
 
 const SCREENSHOT_FORMAT_OPTIONS: ScreenshotFormat[] = ['png', 'jpeg'];
 
+/**
+ * Retry cadence for the deck/model lists while they are still empty.
+ * Note: deliberately slow (4s) — Anki may be started minutes after the page
+ * opens, and each attempt is a cheap localhost HTTP call. Polling stops on the
+ * first successful answer, so it never runs in steady state.
+ */
+const ANKI_LIST_POLL_INTERVAL_MS = 4000;
+
+/**
+ * Hard ceiling for one deck/model request.
+ * Note: AnkiConnect runs unauthenticated on localhost, so a half-dead Anki or a
+ * stalled socket can leave the request pending forever. The in-flight guard
+ * would then never release and every later trigger (focus, dropdown open,
+ * polling) would be swallowed. Abort after 5s so the guard always frees up.
+ */
+const ANKI_LIST_REQUEST_TIMEOUT_MS = 5000;
+
 /** Yomitan official card-format SVG icons (public/yomitan/images/). */
 const ICON_SRC: Record<AnkiCardFormatIcon, string> = {
   'big-circle': '/yomitan/images/big-circle.svg',
@@ -118,34 +135,87 @@ export function AnkiFieldProfilesCard({
   const [models, setModels] = useState<string[]>([]);
   /** Cache modelName → field names to avoid re-fetching on every expand. */
   const fieldCacheRef = useRef<Map<string, string[]>>(new Map());
+  /** In-flight deck/model request; a burst of triggers reuses it. */
+  const listsRequestRef = useRef<AbortController | null>(null);
 
-  /* Seed saved values on mount + fetch deck/model lists. */
+  /* Seed saved values on mount. */
   useEffect(() => {
     const saved = readAnkiConnectionPreferences();
     setScreenshotFormat(saved.screenshotFormat);
     setCardFormats(saved.cardFormats);
     setExpandedId(saved.cardFormats[0]?.id ?? null);
-
-    const controller = new AbortController();
-    const client = new AnkiConnectClient(
-      saved.server,
-      saved.apiKey || undefined,
-    );
-    (async () => {
-      try {
-        const [deckList, modelList] = await Promise.all([
-          client.deckNames(controller.signal),
-          client.modelNames(controller.signal),
-        ]);
-        if (controller.signal.aborted) return;
-        setDecks(deckList);
-        setModels(modelList);
-      } catch {
-        // fail-soft: Anki not running — keep current deck/model values
-      }
-    })();
-    return () => controller.abort();
   }, []);
+
+  /**
+   * Fetch deckNames + modelNames and publish them.
+   *
+   * Anki can be started *after* this card is already open, so the lists are not
+   * a one-shot mount fetch — see the triggers below. Concurrent calls collapse
+   * into the pending request, and the previous lists stay on screen until a
+   * fresh answer arrives, so a failed fetch never blanks the dropdowns.
+   */
+  const fetchDecksAndModels = useCallback(async (): Promise<void> => {
+    if (listsRequestRef.current) return;
+    const controller = new AbortController();
+    listsRequestRef.current = controller;
+    const timeoutId = window.setTimeout(
+      () => controller.abort(),
+      ANKI_LIST_REQUEST_TIMEOUT_MS,
+    );
+    try {
+      const saved = readAnkiConnectionPreferences();
+      const client = new AnkiConnectClient(
+        saved.server,
+        saved.apiKey || undefined,
+      );
+      const [deckList, modelList] = await Promise.all([
+        client.deckNames(controller.signal),
+        client.modelNames(controller.signal),
+      ]);
+      if (controller.signal.aborted) return;
+      setDecks(deckList);
+      setModels(modelList);
+      // A fresh answer means Anki is reachable — drop cached field lists so a
+      // note type whose fields changed in Anki is re-read instead of served
+      // from a stale cache.
+      fieldCacheRef.current.clear();
+    } catch {
+      // fail-soft: Anki not running — keep the last known deck/model lists.
+    } finally {
+      window.clearTimeout(timeoutId);
+      if (listsRequestRef.current === controller) {
+        listsRequestRef.current = null;
+      }
+    }
+  }, []);
+
+  /* Trigger 1 — initial fetch, plus a refetch whenever the window regains
+     focus (the user alt-tabs back after starting Anki). */
+  useEffect(() => {
+    void fetchDecksAndModels();
+    const handleFocus = () => void fetchDecksAndModels();
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      listsRequestRef.current?.abort();
+      listsRequestRef.current = null;
+    };
+  }, [fetchDecksAndModels]);
+
+  /* Trigger 3 — low-frequency retry until Anki answers once, then idle. */
+  const listsLoaded = decks.length > 0 && models.length > 0;
+  useEffect(() => {
+    if (listsLoaded) return;
+    const timer = window.setInterval(() => {
+      // Skip polling while the tab/window is hidden: nobody can see the
+      // dropdowns, and the focus trigger refetches on return.
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return;
+      }
+      void fetchDecksAndModels();
+    }, ANKI_LIST_POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [listsLoaded, fetchDecksAndModels]);
 
   /** Fetch (and cache) field names for a model; never throws. */
   const resolveFields = useCallback(
@@ -413,6 +483,9 @@ export function AnkiFieldProfilesCard({
                             onValueChange={(next) =>
                               updateFormat(format.id, { deck: next })
                             }
+                            onOpenChange={(open) => {
+                              if (open) void fetchDecksAndModels();
+                            }}
                           >
                             <SelectTrigger
                               size="sm"
@@ -447,6 +520,7 @@ export function AnkiFieldProfilesCard({
                     models={models}
                     dict={dict}
                     onSelect={(modelName) => void handleModelChange(format, modelName)}
+                    onOpen={() => void fetchDecksAndModels()}
                   />
 
                   <hr className="entei-settings-divider" />
@@ -489,11 +563,14 @@ function ProfileModelSelect({
   models,
   dict,
   onSelect,
+  onOpen,
 }: {
   format: AnkiCardFormat;
   models: string[];
   dict: Dictionary['ankiFieldProfiles'];
   onSelect: (modelName: string) => void;
+  /** Fired when the dropdown opens, so a late-started Anki is picked up. */
+  onOpen?: () => void;
 }) {
   const options = useMemo(
     () =>
@@ -513,7 +590,13 @@ function ProfileModelSelect({
         </span>
       </div>
       <div className="entei-module-field-control">
-        <Select value={format.model} onValueChange={onSelect}>
+        <Select
+          value={format.model}
+          onValueChange={onSelect}
+          onOpenChange={(open) => {
+            if (open) onOpen?.();
+          }}
+        >
           <SelectTrigger
             size="sm"
             className="entei-module-select"
