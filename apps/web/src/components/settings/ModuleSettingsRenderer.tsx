@@ -647,8 +647,6 @@ function ModuleLayoutRow({
   if (row.layout === 'backup') {
     return (
       <BackupRow
-        label={row.label ?? 'Settings'}
-        description={row.description}
         options={options}
         onOptionsChange={onOptionsChange}
       />
@@ -884,13 +882,9 @@ function ModuleLayoutRow({
 /* --- Settings backup action card --- */
 
 function BackupRow({
-  label,
-  description,
   options,
   onOptionsChange,
 }: {
-  label: string;
-  description: string | undefined;
   options: Options;
   onOptionsChange: (next: Options) => void;
 }) {
@@ -1165,12 +1159,6 @@ function BackupRow({
 
   return (
     <div className="entei-module-field" data-layout="backup">
-      <div className="entei-module-field-text">
-        <span className="entei-module-field-label">{label}</span>
-        {description !== undefined && (
-          <span className="entei-module-field-description">{description}</span>
-        )}
-      </div>
       <input
         ref={fileInputRef}
         type="file"
