@@ -929,6 +929,11 @@
           "description": "Import and export installed dictionaries and Yomitan settings."
         }
       ]
+    },
+    {
+      "section": "debug",
+      "rows": [],
+      "hidden": true
     }
 
   ]

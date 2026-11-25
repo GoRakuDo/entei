@@ -182,16 +182,16 @@ describe('ModuleSettingsRenderer — sections', () => {
   it('renders one collapsible section per manifest entry', () => {
     renderSettings();
     const toggles = screen.getAllByRole('button', { expanded: false });
-    // Five sections are hidden via sectionLayouts (sentence-parsing, inputs,
-    // translation, accessibility, clipboard): 18 tree sections - 5 hidden = 13
-    expect(toggles).toHaveLength(yomitanSettingsTree.length - 5);
+    // Six sections are hidden via sectionLayouts (sentence-parsing, inputs,
+    // translation, accessibility, clipboard, debug): 18 tree sections - 6 hidden = 12
+    expect(toggles).toHaveLength(yomitanSettingsTree.length - 6);
   });
 
   it('gives every section header a leading icon when the manifest asks for it', () => {
     const { container } = renderSettings(true);
     const headers = container.querySelectorAll('.entei-module-section-toggle');
-    // Five sections are hidden via sectionLayouts; 18 tree sections - 5 = 13
-    expect(headers.length).toBe(yomitanSettingsTree.length - 5);
+    // Six sections are hidden via sectionLayouts; 18 tree sections - 6 = 12
+    expect(headers.length).toBe(yomitanSettingsTree.length - 6);
     for (const header of headers) {
       const icon = header.querySelector('.entei-module-section-icon');
       expect(icon).not.toBeNull();
