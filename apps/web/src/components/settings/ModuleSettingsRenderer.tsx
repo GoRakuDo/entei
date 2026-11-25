@@ -1180,7 +1180,30 @@ function BackupRow({
     const message = ankiControlled
       ? 'Reset Yomitan settings to defaults? Anki settings will also be reset (Yomitan Module Control is on).'
       : 'Reset Yomitan settings to defaults?';
-    if (typeof window !== 'undefined' && !window.confirm(message)) return;
+    // Confirm and AWAIT the answer before touching anything. Inside Tauri the
+    // webview's `window.confirm` does not hand back a plain boolean, so reading
+    // it synchronously always looked like "not false" and the reset ran (with
+    // its success toast) while the dialog was still on screen. The dialog
+    // plugin's `confirm` resolves only once the user presses OK or Cancel.
+    let confirmed: boolean;
+    if (isTauri()) {
+      try {
+        const { confirm } = await import('@tauri-apps/plugin-dialog');
+        confirmed = await confirm(message, { title: 'Entei', kind: 'warning' });
+      } catch {
+        // The native dialog is the only way to ask inside the app, so an
+        // unaskable confirmation means no reset — and a silent no-op would
+        // read as a dead button, so say why nothing happened.
+        toast.error('Reset cancelled: the confirmation dialog could not open.');
+        return;
+      }
+    } else if (typeof window !== 'undefined') {
+      confirmed = window.confirm(message);
+    } else {
+      // No prompt surface at all: fail closed rather than reset unasked.
+      confirmed = false;
+    }
+    if (!confirmed) return;
     setResetting(true);
     try {
       // resetSettings itself restores this app's Anki defaults when the bridge is

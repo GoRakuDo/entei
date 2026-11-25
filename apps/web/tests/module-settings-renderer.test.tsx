@@ -49,10 +49,11 @@ import {
 } from '@/components/settings/module-copy';
 
 /** The OS save dialog the desktop Export path hands the path back from. */
-const dialogSpies = vi.hoisted(() => ({ save: vi.fn(), open: vi.fn() }));
+const dialogSpies = vi.hoisted(() => ({ save: vi.fn(), open: vi.fn(), confirm: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   save: dialogSpies.save,
   open: dialogSpies.open,
+  confirm: dialogSpies.confirm,
 }));
 
 /** The Export path's only user-visible outcome: a confirmation, or nothing. */
@@ -1802,5 +1803,130 @@ describe('ModuleSettingsRenderer — the Backup export sink', () => {
       URL.createObjectURL = originalCreate;
       URL.revokeObjectURL = originalRevoke;
     }
+  });
+});
+
+describe('ModuleSettingsRenderer — the Reset confirmation gate', () => {
+  /** Tauri installed, IPC answering nothing: enough for `isTauri()` to say yes. */
+  function installTauri(): void {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
+      invoke: vi.fn(async () => null),
+    };
+  }
+
+  function removeTauri(): void {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  }
+
+  /** One option pushed off its default, so a reset is observable afterwards. */
+  function writeOffDefaultWidth(): void {
+    const base = readYomitanOptions();
+    const current = base.profiles[base.profileCurrent]!;
+    writeYomitanOptions({
+      ...base,
+      profiles: base.profiles.map((entry, index) =>
+        index === base.profileCurrent
+          ? {
+              ...entry,
+              options: {
+                ...current.options,
+                general: { ...current.options.general, popupWidth: 999 },
+              },
+            }
+          : entry,
+      ),
+    });
+    expect(readOptionPath(readYomitanOptions(), 'general.popupWidth')).toBe(999);
+  }
+
+  function clickReset(): void {
+    openSection(/Backup/i);
+    fireEvent.click(screen.getByRole('button', { name: /^Reset$/ }));
+  }
+
+  afterEach(() => {
+    removeTauri();
+    dialogSpies.confirm.mockReset();
+    toastSpies.success.mockReset();
+    toastSpies.error.mockReset();
+  });
+
+  it('opens the native confirm and keeps every option when the user cancels', async () => {
+    installTauri();
+    writeOffDefaultWidth();
+    dialogSpies.confirm.mockResolvedValue(false);
+    renderSettings();
+    clickReset();
+
+    await waitFor(() => expect(dialogSpies.confirm).toHaveBeenCalledTimes(1));
+    const [message, options] = dialogSpies.confirm.mock.calls[0]! as [
+      string,
+      { title: string; kind: string },
+    ];
+    expect(message).toBe('Reset Yomitan settings to defaults?');
+    expect(options).toMatchObject({ title: 'Entei', kind: 'warning' });
+
+    // The answer decides: a cancel discards the reset and announces nothing.
+    expect(readOptionPath(readYomitanOptions(), 'general.popupWidth')).toBe(999);
+    expect(toastSpies.success).not.toHaveBeenCalledWith('Yomitan settings reset.');
+    expect(dialogSpies.confirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('resets and confirms only once the user presses OK', async () => {
+    installTauri();
+    writeOffDefaultWidth();
+    // Hold the dialog open: nothing may run while it is still unanswered.
+    let answer: (value: boolean) => void = () => {};
+    dialogSpies.confirm.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        answer = resolve;
+      }),
+    );
+    renderSettings();
+    clickReset();
+
+    await waitFor(() => expect(dialogSpies.confirm).toHaveBeenCalledTimes(1));
+    // Still on screen: the stored option and the toast are both untouched.
+    expect(readOptionPath(readYomitanOptions(), 'general.popupWidth')).toBe(999);
+    expect(toastSpies.success).not.toHaveBeenCalledWith('Yomitan settings reset.');
+
+    await act(async () => {
+      answer(true);
+    });
+    await waitFor(() =>
+      expect(toastSpies.success).toHaveBeenCalledWith('Yomitan settings reset.'),
+    );
+    expect(readOptionPath(readYomitanOptions(), 'general.popupWidth')).not.toBe(999);
+  });
+
+  it('refuses to reset and says why when the native confirm cannot open', async () => {
+    // If the native confirmation dialog fails to invoke (e.g. chunk import
+    // failure or unhandled plugin error), it must fail-closed and stay inert
+    // instead of resetting.
+    installTauri();
+    writeOffDefaultWidth();
+    dialogSpies.confirm.mockRejectedValue(new Error('dialog.confirm not allowed'));
+    renderSettings();
+    clickReset();
+
+    await waitFor(() =>
+      expect(toastSpies.error).toHaveBeenCalledWith(
+        'Reset cancelled: the confirmation dialog could not open.',
+      ),
+    );
+    expect(readOptionPath(readYomitanOptions(), 'general.popupWidth')).toBe(999);
+    expect(toastSpies.success).not.toHaveBeenCalledWith('Yomitan settings reset.');
+  });
+
+  it('uses the webview prompt outside Tauri', () => {
+    writeOffDefaultWidth();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderSettings();
+    clickReset();
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(dialogSpies.confirm).not.toHaveBeenCalled();
+    expect(readOptionPath(readYomitanOptions(), 'general.popupWidth')).toBe(999);
+    expect(toastSpies.success).not.toHaveBeenCalledWith('Yomitan settings reset.');
   });
 });
