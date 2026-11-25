@@ -107,8 +107,48 @@ describe('readAnkiConnectionPreferences', () => {
     expect(defaultProfile?.fields.Front).toBe('{expression}');
     const denchouProfile = prefs.cardFormats[1];
     expect(denchouProfile?.fields.sentenceFurigana).toBe(
-      '{sentence-furigana}',
+      '<span class="group">{sentence-furigana}</span>',
     );
+    expect(Object.keys(denchouProfile?.fields ?? {})).toHaveLength(23);
+  });
+
+  it('fills a legacy 4-field DenChou profile up to the full 23-field map', () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...DEFAULT_ANKI_CONNECTION_PREFERENCES,
+        cardFormats: [
+          DEFAULT_ANKI_CONNECTION_PREFERENCES.cardFormats[0],
+          {
+            id: 'denchou',
+            name: 'DenChou',
+            type: 'term',
+            icon: 'small-circle',
+            deck: 'Mining',
+            model: 'DenChou',
+            // Legacy profile saved before the full field map existed.
+            fields: {
+              word: '{expression}',
+              reading: '{reading}',
+              sentence: '{sentence}',
+              sentenceFurigana: '{sentence-furigana}',
+            },
+          },
+        ],
+      }),
+    );
+    const denchou = readAnkiConnectionPreferences().cardFormats[1];
+    expect(Object.keys(denchou?.fields ?? {})).toHaveLength(23);
+    // User-modified values are preserved over defaults...
+    expect(denchou?.fields.sentence).toBe('{sentence}');
+    expect(denchou?.fields.sentenceFurigana).toBe('{sentence-furigana}');
+    expect(denchou?.deck).toBe('Mining');
+    // ...while missing fields gain their defaults.
+    expect(denchou?.fields.picture).toBe('{clipboard-image}');
+    expect(denchou?.fields.definition).toBe('{glossary}');
+    expect(denchou?.fields.freqSort).toBe('{frequency-harmonic-rank}');
+    expect(denchou?.fields.miscInfo).toBe('{document-title}');
+    expect(denchou?.fields['Note ID']).toBe('');
   });
 
   it('falls back screenshotFormat to png on an out-of-union stored value', () => {

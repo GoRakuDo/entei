@@ -98,6 +98,38 @@ const CARD_FORMAT_ICONS: readonly AnkiCardFormatIcon[] = [
   'big-diamond',
 ];
 
+/**
+ * Complete DenChou field map, matching the user's authentic Yomitan DenChou
+ * profile. Declared before DEFAULT_CARD_FORMATS so the seeded profile and the
+ * legacy-profile merge below both source the same single map.
+ */
+const DEFAULT_DENCHOU_FIELDS: Record<string, string> = {
+  word: '{expression}',
+  reading: '{reading}',
+  sentence:
+    '<span class="group">{cloze-prefix}<span class="highlight">{cloze-body}</span>{cloze-suffix}</span>',
+  sentenceFurigana: '<span class="group">{sentence-furigana}</span>',
+  SentenceL1Note: '',
+  sentenceCard: '',
+  audioCard: '',
+  notes: '',
+  hint: '',
+  picture: '{clipboard-image}',
+  wordAudio: '{audio}',
+  sentenceAudio: '',
+  selectionText: '{popup-selection-text}',
+  definition: '{glossary}',
+  glossary: '{glossary}',
+  pitchAccents: '{pitch-accents}',
+  pitchPositions: '{pitch-accent-positions}',
+  pitchCategories: '{pitch-accent-categories}',
+  frequencies: '{frequencies}',
+  freqSort: '{frequency-harmonic-rank}',
+  miscInfo: '{document-title}',
+  dictionaryPreference: '',
+  'Note ID': '',
+};
+
 /** Seed the two default card-format profiles (Default + DenChou). */
 export const DEFAULT_CARD_FORMATS: AnkiCardFormat[] = [
   {
@@ -116,12 +148,7 @@ export const DEFAULT_CARD_FORMATS: AnkiCardFormat[] = [
     icon: 'small-circle',
     deck: 'Default',
     model: 'DenChou',
-    fields: {
-      word: '{expression}',
-      reading: '{reading}',
-      sentence: '{sentence}',
-      sentenceFurigana: '{sentence-furigana}',
-    },
+    fields: { ...DEFAULT_DENCHOU_FIELDS },
   },
 ];
 
@@ -217,7 +244,13 @@ function sanitizeCardFormats(value: unknown): AnkiCardFormat[] {
       icon: enumOr(e.icon, CARD_FORMAT_ICONS, 'big-circle'),
       deck: typeof e.deck === 'string' ? e.deck : '',
       model: typeof e.model === 'string' ? e.model : '',
-      fields,
+      // DenChou: fill in any fields added after the user first saved this
+      // profile, so a legacy 4-field row gains the full map while every
+      // user-edited value still wins over its default.
+      fields:
+        e.id === 'denchou'
+          ? { ...DEFAULT_DENCHOU_FIELDS, ...fields }
+          : fields,
     });
   }
   // Keep at least one profile — an empty list would leave the card un-usable.
