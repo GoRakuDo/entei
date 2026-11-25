@@ -1167,6 +1167,35 @@ fn a_failed_dexie_import_rolls_back_and_preserves_the_previous_dictionary() {
 }
 
 #[test]
+fn dexie_export_reports_progress_percent() {
+    let conn = yomitan::open_in_memory().expect("open in-memory database");
+    import(&conn, build_dictionary_zip());
+    assert!(term_count(&conn) > 0, "fixture carries terms");
+
+    let path = std::env::temp_dir().join("entei-dexie-progress.json");
+    let mut percents: Vec<u32> = Vec::new();
+    let exported = yomitan::export_dictionaries_to_dexie_json_with_progress(
+        &conn,
+        &path,
+        &mut |percent| percents.push(percent),
+    )
+    .expect("export with progress");
+    assert_eq!(exported, 1, "one dictionary exported");
+
+    // The streamed percent never goes backwards, stays in range, and the export
+    // finishes at exactly 100 (the per-row reports cap at 99 before this).
+    assert_eq!(percents.last(), Some(&100), "export finishes at 100%: {percents:?}");
+    assert!(
+        percents.windows(2).all(|w| w[0] <= w[1]),
+        "progress never goes backwards: {percents:?}"
+    );
+    assert!(
+        percents.iter().all(|p| *p <= 100),
+        "percents stay in 0..=100: {percents:?}"
+    );
+}
+
+#[test]
 fn dexie_export_round_trips_through_import() {
     let conn = yomitan::open_in_memory().expect("open in-memory database");
     let summary = import(&conn, build_dictionary_zip());

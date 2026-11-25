@@ -1591,6 +1591,52 @@ describe('ModuleSettingsRenderer — the shipped Result Display layout', () => {
  * the page quiet — a cancel is the user's decision, not a failure.
  */
 
+describe('ModuleSettingsRenderer — the Backup rows', () => {
+  it('renders two joined Import|Export groups under their own labels', () => {
+    renderSettings();
+    openSection(/Backup/i);
+
+    // One row label per backup target.
+    expect(screen.getByText('Yomitan Dictionaries')).toBeTruthy();
+    expect(screen.getByText('Yomitan Settings')).toBeTruthy();
+
+    // Each row carries a joined Import|Export pair, addressable by its own
+    // aria-label (two plain "Import" buttons would be ambiguous to a reader).
+    const dictGroup = screen.getByRole('group', {
+      name: 'Yomitan dictionary backup',
+    });
+    expect(
+      within(dictGroup).getByRole('button', { name: 'Import Yomitan dictionaries' }),
+    ).toBeTruthy();
+    expect(
+      within(dictGroup).getByRole('button', { name: 'Export Yomitan dictionaries' }),
+    ).toBeTruthy();
+
+    const settingsGroup = screen.getByRole('group', {
+      name: 'Yomitan settings backup',
+    });
+    expect(
+      within(settingsGroup).getByRole('button', { name: 'Import Yomitan settings' }),
+    ).toBeTruthy();
+    expect(
+      within(settingsGroup).getByRole('button', { name: 'Export Yomitan settings' }),
+    ).toBeTruthy();
+  });
+
+  it('gives every backup button the fixed-width joined classes', () => {
+    const { container } = renderSettings();
+    openSection(/Backup/i);
+    // Four buttons: each row has a left (Import) and right (Export) half.
+    expect(container.querySelectorAll('.entei-module-backup-btn').length).toBe(4);
+    expect(
+      container.querySelectorAll('.entei-module-backup-btn--left').length,
+    ).toBe(2);
+    expect(
+      container.querySelectorAll('.entei-module-backup-btn--right').length,
+    ).toBe(2);
+  });
+});
+
 describe('ModuleSettingsRenderer — the Backup export sink', () => {
   type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 
@@ -1615,7 +1661,9 @@ describe('ModuleSettingsRenderer — the Backup export sink', () => {
 
   function clickExportSetting(): void {
     openSection(/Backup/i);
-    fireEvent.click(screen.getByRole('button', { name: 'Export Setting' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Export Yomitan settings' }),
+    );
   }
 
   afterEach(() => {

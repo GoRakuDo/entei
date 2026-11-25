@@ -2136,6 +2136,55 @@ const DEXIE_STORES: &[(&str, &str, usize)] = &[
     ),
 ];
 
+/// One store's export identity: its Dexie `tableName`, the SQL that streams its
+/// rows, where the row's dictionary foreign key sits, and (computed at export
+/// time) how many rows it holds — the denominator of the export progress percent.
+struct DexieTableMeta {
+    store: &'static str,
+    sql: &'static str,
+    dictionary_id_col: usize,
+    row_count: i64,
+}
+
+/// Precompute every store's row count in ONE pass so the export progress percent
+/// has a stable, already-known denominator before the first row is streamed.
+fn dexie_table_metas(conn: &Connection) -> Result<Vec<DexieTableMeta>, String> {
+    let mut metas = Vec::with_capacity(DEXIE_STORES.len());
+    for (store, sql, dictionary_id_col) in DEXIE_STORES {
+        let row_count: i64 = conn
+            .query_row(&format!("SELECT COUNT(*) FROM ({sql})"), [], |row| row.get(0))
+            .map_err(|e| format!("count {store} for export: {e}"))?;
+        metas.push(DexieTableMeta {
+            store,
+            sql,
+            dictionary_id_col: *dictionary_id_col,
+            row_count,
+        });
+    }
+    Ok(metas)
+}
+
+/// Report the cumulative export percent for `written` of `total` rows, at most
+/// once per whole-percent step (a multi-gigabyte terms store would otherwise emit
+/// millions of identical updates). Caps at 99; the caller emits the final 100
+/// once the file is complete.
+fn report_export_percent(
+    written: i64,
+    total: i64,
+    reported: &mut u32,
+    on_progress: &mut dyn FnMut(u32),
+) {
+    if total <= 0 {
+        return;
+    }
+    let percent = (((written as f64) / (total as f64)) * 100.0) as u32;
+    let percent = percent.min(99);
+    if percent != *reported {
+        *reported = percent;
+        on_progress(percent);
+    }
+}
+
 /// Build one exported row for `store` from the current `row`, mapping the
 /// flat SQLite columns back to the field names the importer's `insert_row`
 /// reads. `dictionary_id_col` locates the row's dictionary foreign key.
@@ -2215,18 +2264,14 @@ fn dexie_row_to_value(
 fn write_dexie_store(
     writer: &mut impl io::Write,
     conn: &Connection,
-    store: &str,
-    sql: &str,
-    dictionary_id_col: usize,
-    first: bool,
+    meta: &DexieTableMeta,
     titles: &HashMap<String, String>,
+    on_progress: &mut dyn FnMut(u64),
 ) -> Result<(), String> {
-    let row_count: i64 = conn
-        .query_row(&format!("SELECT COUNT(*) FROM ({sql})"), [], |row| row.get(0))
-        .map_err(|e| format!("count {store} for export: {e}"))?;
-    if !first {
-        writer.write_all(b",").map_err(|e| e.to_string())?;
-    }
+    let store = meta.store;
+    let sql = meta.sql;
+    let dictionary_id_col = meta.dictionary_id_col;
+    let row_count = meta.row_count;
     let inbound = store == "terms";
     writer
         .write_all(format!(
@@ -2251,6 +2296,7 @@ fn write_dexie_store(
         let object = dexie_row_to_value(store, row, dictionary_id_col, titles)?;
         serde_json::to_writer(&mut *writer, &object).map_err(|e| e.to_string())?;
         index += 1;
+        on_progress(index);
     }
     writer.write_all(b"]").map_err(|e| e.to_string())?;
     writer.write_all(b"}").map_err(|e| e.to_string())?;
@@ -2266,6 +2312,18 @@ fn write_dexie_store(
 pub fn export_dictionaries_to_dexie_json(
     conn: &Connection,
     path: impl AsRef<Path>,
+) -> Result<u64, String> {
+    export_dictionaries_to_dexie_json_with_progress(conn, path, &mut |_| {})
+}
+
+/// Progress-reporting core of [`export_dictionaries_to_dexie_json`]: byte-for-byte
+/// the same output, but calls `on_progress` with the cumulative percent (0-100) of
+/// rows streamed so far as it writes. The wrapper above runs this same body with a
+/// no-op sink for callers that don't need a live percent.
+pub fn export_dictionaries_to_dexie_json_with_progress(
+    conn: &Connection,
+    path: impl AsRef<Path>,
+    on_progress: &mut dyn FnMut(u32),
 ) -> Result<u64, String> {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
@@ -2310,31 +2368,36 @@ pub fn export_dictionaries_to_dexie_json(
     // re-imports into a reference Yomitan with the same indexes this engine
     // queries. `rowCount` is informational; the import streams `data.data` and
     // ignores both.
+    let dictionaries_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM dictionaries", [], |row| row.get::<_, i64>(0))
+        .map_err(|e| e.to_string())?;
+    let metas = dexie_table_metas(conn)?;
+    let total_rows: i64 = dictionaries_count + metas.iter().map(|m| m.row_count).sum::<i64>();
     let tables_meta = json!([
         {
             "name": "dictionaries",
             "schema": "++id, &title",
-            "rowCount": conn.query_row("SELECT COUNT(*) FROM dictionaries", [], |row| row.get::<_, i64>(0)).map_err(|e| e.to_string())?.max(0),
+            "rowCount": dictionaries_count.max(0),
         },
         {
             "name": "terms",
             "schema": "++id, [dictionary+expression], [dictionary+reading], [dictionary+expression+reading]",
-            "rowCount": conn.query_row("SELECT COUNT(*) FROM terms", [], |row| row.get::<_, i64>(0)).map_err(|e| e.to_string())?.max(0),
+            "rowCount": metas[0].row_count.max(0),
         },
         {
             "name": "kanji",
             "schema": "++id, [dictionary+character]",
-            "rowCount": conn.query_row("SELECT COUNT(*) FROM kanjis", [], |row| row.get::<_, i64>(0)).map_err(|e| e.to_string())?.max(0),
+            "rowCount": metas[1].row_count.max(0),
         },
         {
             "name": "termMeta",
             "schema": "++id, [dictionary+expression]",
-            "rowCount": conn.query_row("SELECT COUNT(*) FROM term_meta", [], |row| row.get::<_, i64>(0)).map_err(|e| e.to_string())?.max(0),
+            "rowCount": metas[2].row_count.max(0),
         },
         {
             "name": "tagMeta",
             "schema": "++id, [dictionary+name]",
-            "rowCount": conn.query_row("SELECT COUNT(*) FROM tags", [], |row| row.get::<_, i64>(0)).map_err(|e| e.to_string())?.max(0),
+            "rowCount": metas[3].row_count.max(0),
         },
     ]);
     serde_json::to_writer(&mut writer, &tables_meta)
@@ -2345,9 +2408,8 @@ pub fn export_dictionaries_to_dexie_json(
     // `dictionaries` is the first entry: each row is the primary-key tuple
     // `[id, {...}]` the importer unwraps (not a plain object). `inbound` is
     // false — the autoIncrement key travels OUTSIDE the object as the tuple.
-    let dictionaries_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM dictionaries", [], |row| row.get(0))
-        .map_err(|e| format!("count dictionaries for export: {e}"))?;
+    let mut written_rows: i64 = 0;
+    let mut reported_percent: u32 = 0;
     writer
         .write_all(
             format!("{{\"tableName\":\"dictionaries\",\"inbound\":false,\"rowCount\":{dictionaries_count},\"rows\":[")
@@ -2382,6 +2444,8 @@ pub fn export_dictionaries_to_dexie_json(
             ]);
             serde_json::to_writer(&mut writer, &tuple).map_err(|e| e.to_string())?;
             index += 1;
+            written_rows += 1;
+            report_export_percent(written_rows, total_rows, &mut reported_percent, on_progress);
         }
     }
     writer.write_all(b"]}").map_err(|e| e.to_string())?;
@@ -2392,8 +2456,15 @@ pub fn export_dictionaries_to_dexie_json(
     // here needs a leading comma — emitting the first without one would splice
     // two objects together (`…]}{…`) and corrupt the JSON when dictionaries is
     // empty.
-    for (store, sql, dictionary_id_col) in DEXIE_STORES {
-        write_dexie_store(&mut writer, conn, store, sql, *dictionary_id_col, false, &titles)?;
+    for meta in &metas {
+        // Each content store is its own `data.data` entry, so it needs a
+        // leading comma (the `dictionaries` entry above always emits, so
+        // every store here follows one).
+        writer.write_all(b",").map_err(|e| e.to_string())?;
+        write_dexie_store(&mut writer, conn, meta, &titles, &mut |_| {
+            written_rows += 1;
+            report_export_percent(written_rows, total_rows, &mut reported_percent, on_progress);
+        })?;
     }
 
     // Close the `data.data` array, the `data` object, and the top-level object.
@@ -2409,6 +2480,10 @@ pub fn export_dictionaries_to_dexie_json(
             path.display()
         ));
     }
+    // The whole backup is on disk at its final path. Only now report the final
+    // 100 — the per-row reports cap at 99, so this completion jump is
+    // unambiguous, and a failed finalize never tells the UI the export landed.
+    on_progress(100);
     Ok(dictionaries_count.max(0) as u64)
 }
 /// Position bookkeeping for one streamed backup: how many rows of the

@@ -194,6 +194,12 @@ macro_rules! with_yomitan_db {
 /// never subscribes to is an import that looks frozen.
 pub const YOMITAN_IMPORT_PROGRESS_EVENT: &str = "yomitan:import-progress";
 
+/// Progress (a plain `u32` percent, 0-100) of a running dictionary EXPORT, as
+/// published by the native engine while it streams a Dexie JSON backup to disk.
+/// Like the import event, the name carries ONE colon; the webview subscribes to
+/// [`onYomitanExportProgress`](the web bridge) to draw `Exporting NN%`.
+pub const YOMITAN_EXPORT_PROGRESS_EVENT: &str = "yomitan:export-progress";
+
 /// The window every progress event is addressed to as well as broadcast to.
 ///
 /// Entei has exactly one window (`tauri.conf.json`, label `main`), so this is
@@ -274,13 +280,26 @@ async fn yomitan_toggle_dictionary(
 /// Export every installed dictionary to a Yomitan Dexie JSON backup at
 /// `path`, streamed straight to disk. Returns the number of dictionaries
 /// written. This is the inverse of [`yomitan_import_dictionary_dexie`], so a
-/// backup round-trips through any Yomitan.
+/// backup round-trips through any Yomitan. Publishes
+/// [`YOMITAN_EXPORT_PROGRESS_EVENT`] (a `u32` percent) as it streams, so the
+/// webview can draw `Exporting NN%` in the button.
 #[tauri::command]
-async fn yomitan_export_dictionary_dexie(
+async fn yomitan_export_dictionary_dexie<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, YomitanDbState>,
     path: String,
 ) -> Result<u64, String> {
-    with_yomitan_db!(state, |conn| yomitan::export_dictionaries_to_dexie_json(conn, &path))
+    with_yomitan_db!(state, |conn| yomitan::export_dictionaries_to_dexie_json_with_progress(
+        conn,
+        &path,
+        // Same redundant dual-route emit as the imports: broadcast plus a copy
+        // addressed to the one window, so a silently undelivered stream can't
+        // leave the button frozen at 0%. Neither route may fail the export.
+        &mut |percent: u32| {
+            let _ = app.emit(YOMITAN_EXPORT_PROGRESS_EVENT, percent);
+            let _ = app.emit_to(MAIN_WINDOW_LABEL, YOMITAN_EXPORT_PROGRESS_EVENT, percent);
+        },
+    ))
 }
 #[tauri::command]
 async fn yomitan_delete_dictionary(

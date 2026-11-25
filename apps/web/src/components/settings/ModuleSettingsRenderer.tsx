@@ -141,6 +141,8 @@ import {
   writeTextFileDirect,
   importDictionaryDexieDirect,
   exportDictionaryDexieDirect,
+  onYomitanImportProgress,
+  onYomitanExportProgress,
 } from '@/features/player/tauri-bridge';
 import { toast } from 'sonner';
 import type { Dictionary } from '@i18n/types';
@@ -894,6 +896,64 @@ function BackupRow({
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Progress (percent) of the four backup operations, or `null` when idle. A
+  // non-null value both swaps the button's label to `Importing NN%` and disables
+  // its row against a second click.
+  const [dictImportPercent, setDictImportPercent] = useState<number | null>(null);
+  const [dictExportPercent, setDictExportPercent] = useState<number | null>(null);
+  const [settingsImportPercent, setSettingsImportPercent] = useState<number | null>(null);
+  const [settingsExportPercent, setSettingsExportPercent] = useState<number | null>(null);
+
+  // Whether THIS card is the one driving the current dictionary import/export.
+  // The engine's progress events are global broadcasts — a dictionary imported
+  // from the Dictionaries list fires the same event — so without this gate the
+  // row's buttons would flip to `Importing NN%` / disabled while some OTHER
+  // surface runs its own import. The ref (not state) keeps the subscription
+  // handler stable across renders.
+  const dictImportingRef = useRef(false);
+  const dictExportingRef = useRef(false);
+
+  // The settings import/export percent pulses (0 -> 100) inside a single gesture
+  // and settles back to idle after a short delay. Track the pending timer so an
+  // unmount before it fires doesn't call a state setter on a dead component.
+  const settingsTimersRef = useRef<number[]>([]);
+  useEffect(() => {
+    const timers = settingsTimersRef.current;
+    return () => {
+      for (const id of timers) window.clearTimeout(id);
+      timers.length = 0;
+    };
+  }, []);
+
+  /** Schedule the settings percent's return to idle, cancellable on unmount. */
+  function scheduleSettingsIdleReset(
+    reset: (next: number | null) => void,
+  ): void {
+    const id = window.setTimeout(() => reset(null), 800);
+    settingsTimersRef.current.push(id);
+  }
+
+  // The engine streams a dictionary backup row by row and publishes a percent on
+  // `yomitan:export-progress` (a bare number); imports publish a
+  // `{percent, current, total}` report. Both are memory-only — the number lives
+  // in this component and is reset the moment its operation settles. Events that
+  // arrive while this card isn't the one driving the operation are ignored, so
+  // another surface's import never moves this row's label.
+  useEffect(() => {
+    const stopImport = onYomitanImportProgress((progress) => {
+      if (!dictImportingRef.current) return;
+      setDictImportPercent(progress.percent);
+    });
+    const stopExport = onYomitanExportProgress((percent) => {
+      if (!dictExportingRef.current) return;
+      setDictExportPercent(percent);
+    });
+    return () => {
+      stopImport();
+      stopExport();
+    };
+  }, []);
+
   /** Current date as `YYYY-MM-DD`, for the dictionary export filename. */
   function todayStamp(): string {
     const now = new Date();
@@ -950,21 +1010,31 @@ function BackupRow({
   }
 
   async function handleImportSettingsFile(file: File): Promise<void> {
+    // Settings import is a fast local JSON parse, so the percent is a short
+    // 0 -> 100 pulse: the button label reads `Importing 0%` the moment the file
+    // is chosen and `Importing 100%` once it lands, then returns to `Import`.
+    setSettingsImportPercent(0);
     try {
       const text = await file.text();
       const profileCount = await importSettingsFromJson(text);
+      setSettingsImportPercent(100);
       toast.success(`Imported ${profileCount} profile${profileCount === 1 ? '' : 's'}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Import failed.';
       toast.error(message);
+    } finally {
+      scheduleSettingsIdleReset(setSettingsImportPercent);
     }
   }
 
   async function handleExportSettings(): Promise<void> {
+    setSettingsExportPercent(0);
     try {
       const payload = buildSettingsExportPayload();
+      setSettingsExportPercent(50);
       const exported = await downloadText(payload.contents, payload.filename);
       if (!exported) return; // User cancelled: silence, not a failure.
+      setSettingsExportPercent(100);
       traceSettingsExported(payload.profileCount);
       toast.success('Settings exported.');
     } catch (error) {
@@ -975,6 +1045,8 @@ function BackupRow({
             ? error.message
             : 'Export failed.';
       toast.error(message);
+    } finally {
+      scheduleSettingsIdleReset(setSettingsExportPercent);
     }
   }
 
@@ -984,6 +1056,10 @@ function BackupRow({
       toast.error('Dictionary import requires the desktop app.');
       return;
     }
+    setDictImportPercent(0);
+    // Claim the import for THIS card before any await so the global progress
+    // events this operation is about to emit are the ones this row listens to.
+    dictImportingRef.current = true;
     try {
       const { open } = await import('@tauri-apps/plugin-dialog');
       const picked = await open({
@@ -1031,6 +1107,13 @@ function BackupRow({
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Dictionary import failed.';
       toast.error(message);
+    } finally {
+      // Release the claim BEFORE dropping the label, so a late event from this
+      // operation can't sneak past the guard and re-light the row.
+      dictImportingRef.current = false;
+      // The engine's progress events stop once the import settles; drop the
+      // label back to idle so the row isn't stuck at `Importing 100%`.
+      setDictImportPercent(null);
     }
   }
 
@@ -1040,6 +1123,10 @@ function BackupRow({
       toast.error('Dictionary export requires the desktop app.');
       return;
     }
+    setDictExportPercent(0);
+    // Same claim as the import path: this card owns the export stream it is
+    // about to start, whatever else the app is doing.
+    dictExportingRef.current = true;
     try {
       const { save } = await import('@tauri-apps/plugin-dialog');
       const chosenPath = await save({
@@ -1059,8 +1146,22 @@ function BackupRow({
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Dictionary export failed.';
       toast.error(message);
+    } finally {
+      // Release the claim before the label so a trailing event can't re-light
+      // the row either.
+      dictExportingRef.current = false;
+      // The export stream emitted its final 100 and stopped; return to idle so
+      // the row isn't stuck at `Exporting 100%`.
+      setDictExportPercent(null);
     }
   }
+
+  // Per-row busy: while either operation in a row runs, BOTH its buttons disable
+  // (no second click mid-stream). `NN%` swaps the label so the button itself is
+  // the progress indicator.
+  const dictBusy = dictImportPercent !== null || dictExportPercent !== null;
+  const settingsBusy =
+    settingsImportPercent !== null || settingsExportPercent !== null;
 
   return (
     <div className="entei-module-field" data-layout="backup">
@@ -1070,33 +1171,91 @@ function BackupRow({
           <span className="entei-module-field-description">{description}</span>
         )}
       </div>
-      <div className="entei-module-backup-actions">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".json,application/json"
-          className="entei-module-backup-file-input"
-          aria-hidden="true"
-          tabIndex={-1}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file !== undefined) void handleImportSettingsFile(file);
-            // Reset so re-selecting the same file fires change again.
-            e.target.value = '';
-          }}
-        />
-        <SettingsButton onClick={() => void handleImportDictionary()}>
-          Import Kamus
-        </SettingsButton>
-        <SettingsButton onClick={() => void handleExportDictionary()}>
-          Export Kamus
-        </SettingsButton>
-        <SettingsButton onClick={() => fileInputRef.current?.click()}>
-          Import Setting
-        </SettingsButton>
-        <SettingsButton onClick={() => void handleExportSettings()}>
-          Export Setting
-        </SettingsButton>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,application/json"
+        className="entei-module-backup-file-input"
+        aria-hidden="true"
+        tabIndex={-1}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file !== undefined) void handleImportSettingsFile(file);
+          // Reset so re-selecting the same file fires change again.
+          e.target.value = '';
+        }}
+      />
+      <div className="entei-module-backup-rows">
+        <div className="entei-module-backup-row">
+          <span className="entei-module-backup-row-label">Yomitan Dictionaries</span>
+          <div
+            className="entei-module-backup-group"
+            role="group"
+            aria-label="Yomitan dictionary backup"
+          >
+            <SettingsButton
+              className="entei-module-backup-btn entei-module-backup-btn--left"
+              disabled={dictBusy}
+              aria-label={
+                dictImportPercent === null
+                  ? 'Import Yomitan dictionaries'
+                  : `Importing Yomitan dictionaries, ${dictImportPercent}%`
+              }
+              onClick={() => void handleImportDictionary()}
+            >
+              {dictImportPercent === null ? 'Import' : `Importing ${dictImportPercent}%`}
+            </SettingsButton>
+            <SettingsButton
+              className="entei-module-backup-btn entei-module-backup-btn--right"
+              disabled={dictBusy}
+              aria-label={
+                dictExportPercent === null
+                  ? 'Export Yomitan dictionaries'
+                  : `Exporting Yomitan dictionaries, ${dictExportPercent}%`
+              }
+              onClick={() => void handleExportDictionary()}
+            >
+              {dictExportPercent === null ? 'Export' : `Exporting ${dictExportPercent}%`}
+            </SettingsButton>
+          </div>
+        </div>
+        <div className="entei-module-backup-row">
+          <span className="entei-module-backup-row-label">Yomitan Settings</span>
+          <div
+            className="entei-module-backup-group"
+            role="group"
+            aria-label="Yomitan settings backup"
+          >
+            <SettingsButton
+              className="entei-module-backup-btn entei-module-backup-btn--left"
+              disabled={settingsBusy}
+              aria-label={
+                settingsImportPercent === null
+                  ? 'Import Yomitan settings'
+                  : `Importing Yomitan settings, ${settingsImportPercent}%`
+              }
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {settingsImportPercent === null
+                ? 'Import'
+                : `Importing ${settingsImportPercent}%`}
+            </SettingsButton>
+            <SettingsButton
+              className="entei-module-backup-btn entei-module-backup-btn--right"
+              disabled={settingsBusy}
+              aria-label={
+                settingsExportPercent === null
+                  ? 'Export Yomitan settings'
+                  : `Exporting Yomitan settings, ${settingsExportPercent}%`
+              }
+              onClick={() => void handleExportSettings()}
+            >
+              {settingsExportPercent === null
+                ? 'Export'
+                : `Exporting ${settingsExportPercent}%`}
+            </SettingsButton>
+          </div>
+        </div>
       </div>
     </div>
   );

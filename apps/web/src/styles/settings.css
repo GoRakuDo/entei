@@ -933,28 +933,105 @@ body[data-page='settings'] .entei-main {
 }
 
 /* --------------------------------------------------------------------------
-   SETTINGS BACKUP ACTIONS - a 2x2 grid of four horizontal 44px buttons:
-   Import Kamus / Export Kamus / Import Setting / Export Setting, two per row
-   (one column on narrow screens). The hidden file input is visually removed but stays in the DOM so
-   the Import button can call `.click()` on it.
+   SETTINGS BACKUP ACTIONS — two rows (Yomitan Dictionaries, Yomitan Settings),
+   each a label on the left and a JOINED Import | Export button group on the
+   right. While an operation runs its button label swaps to `Importing NN%` /
+   `Exporting NN%`, so each button is FIXED at 9.5rem (group 19rem): the wider
+   progress label must never stretch or shrink the button by a single pixel.
+   The hidden file input stays in the DOM so the settings Import button can call
+   `.click()` on it.
    Spacing tokens only (#1641); OKLCH only (#1621); no negative margins (#2471).
    -------------------------------------------------------------------------- */
-.entei-module-backup-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(10rem, 15rem));
-  gap: var(--entei-space-8);
+.entei-module-field[data-layout='backup'] {
+  /* Full-width block, not the standard 1fr grid column: the backup card holds
+     two labelled rows of its own, so a grid cell would squeeze the right-hand
+     button group against the label. A vertical flex lets each row span the card
+     and put its label on the left / joined group on the right via the row's own
+     `space-between`. */
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
 }
 
-.entei-module-backup-actions .entei-action-btn {
+.entei-module-backup-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-16);
+  width: 100%;
+}
+
+.entei-module-backup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--entei-space-16);
+}
+
+.entei-module-backup-row-label {
+  font-size: 1rem;
+  color: var(--entei-text-secondary);
+}
+
+/* The joined group: two 9.5rem buttons flush together, rounded only on the outer
+   corners, with a 1px hairline divider down the middle. */
+.entei-module-backup-group {
+  display: inline-flex;
+  align-items: stretch;
+  flex: none;
+  width: 19rem;
+}
+
+.entei-module-backup-btn {
+  /* Fixed, not min-width: an `Exporting 100%` label is wider than `Export`, and
+     a width that could grow would animate the button on every percent tick.
+     9.5rem (group 19rem) leaves the bolded progress label room on either side
+     at every percent, so the text never overflows the rounded cap. */
+  padding-inline: var(--entei-space-8);
+  width: 9.5rem;
+  min-width: 9.5rem;
+  /* Tabular figures: `1` and `0` share one advance width, so `9%` -> `10%`
+     doesn't nudge the label sideways. */
+  font-variant-numeric: tabular-nums;
   height: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
-  width: 100%;
   white-space: nowrap;
+  align-self: stretch;
+  /* Override the standalone button's `align-self: flex-start` so both halves of
+     the group share one height. */
+  justify-content: center;
+}
+
+.entei-module-backup-btn--left {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: none;
+}
+
+.entei-module-backup-btn--right {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  /* The single hairline separating Import from Export. */
+  border-left: 1px solid oklch(100% 0 0deg / 0.08);
 }
 
 @media (max-width: 767px) {
-  .entei-module-backup-actions {
-    grid-template-columns: minmax(0, 1fr);
+  .entei-module-backup-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--entei-space-8);
+  }
+
+  .entei-module-backup-group {
+    width: 100%;
+  }
+
+  .entei-module-backup-btn {
+    /* Two fixed-width halves still, so the progress label never shifts them;
+       they just share the full row instead of a 19rem block. */
+    width: auto;
+    flex: 1 1 0;
+    min-width: 0;
   }
 }
 

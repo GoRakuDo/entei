@@ -485,6 +485,52 @@ export interface YomitanImportProgress {
 export const YOMITAN_IMPORT_PROGRESS_EVENT = 'yomitan:import-progress';
 
 /**
+ * Event name the Rust exporter publishes its progress on.
+ *
+ * The payload is a bare `u32` percent (0-100) — unlike the import event, which
+ * carries a `{percent, current, total}` object, the exporter only has a
+ * whole-backup row denominator to report, so it emits the number directly.
+ */
+export const YOMITAN_EXPORT_PROGRESS_EVENT = 'yomitan:export-progress';
+
+/**
+ * Subscribe to the native dictionary export's progress (a percent).
+ *
+ * Mirrors [`onYomitanImportProgress`]: returns the unsubscribe function, a
+ * browser gets a no-op instead of a throw, and `listen` is imported statically
+ * so an export started inside the registration hop still has a live listener.
+ */
+export function onYomitanExportProgress(
+  callback: (percent: number) => void,
+): () => void {
+  if (!isTauri()) return () => {};
+  let unlisten: (() => void) | null = null;
+  let cancelled = false;
+  void listen<unknown>(YOMITAN_EXPORT_PROGRESS_EVENT, (event) => {
+    const percent = event.payload;
+    if (typeof percent === 'number' && Number.isFinite(percent)) {
+      callback(percent);
+    }
+  })
+    .then((stop) => {
+      if (cancelled) {
+        stop();
+        return;
+      }
+      unlisten = stop;
+    })
+    .catch(() => {
+      // No event bridge (or a webview that blocks it): the export still runs,
+      // the button just has no live percent to show.
+    });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+    unlisten = null;
+  };
+}
+
+/**
  * Coerce one raw event payload into progress, or null when it is not one.
  *
  * The payload crosses the IPC boundary untyped, and the percent is rendered as a
