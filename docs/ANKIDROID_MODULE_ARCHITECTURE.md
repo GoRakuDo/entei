@@ -1,66 +1,83 @@
-# ANKIDROID_MODULE_ARCHITECTURE — AnkiDroid ネイティブ連携モジュール設計書
+# ANKIDROID_MODULE_ARCHITECTURE — AnkiDroid Connect モジュール設計書
 
-> **状態:** 設計確定（Android専用ネイティブ統合 / 完全承認版）  
-> **対象:** Android版 Entei における AnkiDroid 直接連携、既存 `plugins/tauri-plugin-anki` の Android バックエンド統合（Kotlin / Tauri v2 Mobile Plugin）、ContentProvider 通信、メディア登録、IPCインターフェース  
-> **方針:** 外部APK（AnkiconnectAndroid等）やTermux、アプリ内HTTPサーバー（ポート8765）を完全に排除。Tauri v2 Androidのネイティブプラグイン機構を活用し、AnkiDroid公式の ContentProvider API（`FlashCardsContract` / `AddContentApi`）をプロセス間IPCで直接叩くことで、ゼロ構成・低レイテンシ・省電力な採掘体験を実現する。
-
----
-
-## 1. 概要と設計思想
-
-### 1.1 従来の課題と限界
-従来の Android 環境における Anki 連携（AnkiconnectAndroid 等）には以下の構造的な摩擦が存在していた：
-1. **外部アプリの依存**: ユーザーが AnkiDroid とは別に非公式の野良 APK（`AnkiconnectAndroid.apk`）を手動インストールし、バックグラウンドサービスを常駐させる必要があった。
-2. **HTTP サーバーのオーバーヘッド**: スマホ内部で HTTP サーバー（NanoHTTPD:8765）を稼働させるため、バッテリー消費の増大や OS の Doze モードによる不意のプロセス停止、ポート競合リスクが常に付きまとっていた。
-3. **ファイルアクセスの壁**: Android 11（Scoped Storage）以降、別プロセスのアプリが AnkiDroid の内部データディレクトリに直接アクセスすることは OS 仕様上不可能であった。
-
-### 1.2 本モジュールの解決策
-Entei の既存プラグイン `plugins/tauri-plugin-anki` 内に **Android 専用バックエンド（Kotlin / Tauri v2 Mobile）** を組み込む：
-- **既存 IPC の完全維持（フロントエンド変更ゼロ）**: 新規プラグインを乱立させず、既存の `plugin:anki|anki_request` および `plugin:anki|anki_check_connection` の内部ルーティングを Rust 側で `#[cfg(target_os = "android")]` で分岐。デスクトップならローカル HTTP（ポート 8765 / `client.rs`）、Android なら Kotlin モバイルプラグイン（`mobile.rs` 経由）へ透過的にディスパッチするため、Web フロントエンド（`AnkiConnectClient` / `AnkiExportClient`）は一切の改修を必要としない。
-- **プロセス間直接通信**: AnkiDroid 公式の `AddContentApi`（`com.github.ankidroid:Anki-Android`）をプラグイン内部の Gradle 依存として組み込み、Android 標準の `ContentResolver` / `ContentProvider` 経由で AnkiDroid と直接通信する。
-- **FileProvider による安全なメディア受け渡し**: 録音音声や動画スクショは、Entei のアプリ内キャッシュから Android 標準の `FileProvider`（`content://` URI）を発行し、`grantUriPermission` で AnkiDroid に一時読み取り権限を付与して引き渡す。
+> **状態:** 設計確定（Entei Modules 配下モジュール統合版）  
+> **対象:** Android版 Entei における AnkiDroid Connect 連携、`plugins/tauri-plugin-modules`（Entei Modules）配下への組み込み、ContentProvider 通信、メディア登録、統一モジュール API  
+> **方針:** アプリ直結の個別プラグインを新設するのではなく、Entei プラットフォームの統一プラグインである **`plugins/tauri-plugin-modules`（Entei Modules）の配下** に AnkiDroid Connect をモジュールとして統合する。フロントエンドはすべて Entei Modules の統一エンドポイント/API（`plugin:modules|...`）を経由して通信し、Android 環境下で AnkiDroid 公式の ContentProvider API（`FlashCardsContract` / `AddContentApi`）へプロセス間直結する。
 
 ---
 
-## 2. システム全体図
+## 1. 概要とアーキテクチャ階層
+
+### 1.1 階層構造（完全統一モジュールパイプライン）
+すべてのモジュール機能（YouTube, Torrent, Yomitan, Jimaku, Nadeshiko）と同様に、AnkiDroid Connect も **Entei Modules (Tauri Plugin)** の傘下で管理される：
 
 ```text
-[ フロントエンド (React / TypeScript) ]
-  ├─ PlayerApp (動画・音声採掘)
-  ├─ Yomitan モジュール (辞書ポップアップ採掘)
-  └─ Anki 設定画面 (/settings/?group=anki)
-              │
-              ▼
-    tauri-bridge.ts ──► invoke('plugin:anki|anki_request', { action, params })
-                     ──► invoke('plugin:anki|anki_check_connection', {})
-              │
-              ▼
-    [ plugins/tauri-plugin-anki (Rust) ]
-              │
-              ├─ #[cfg(not(target_os = "android"))]
-              │     └─ client.rs (HTTP 127.0.0.1:8765) ──► デスクトップ公式 AnkiConnect
-              │
-              └─ #[cfg(target_os = "android")]
-                    └─ mobile.rs ──► run_mobile_plugin_async("anki_request", payload)
-                          │
-                          ▼
-            [ Kotlin ネイティブエンジン (@TauriPlugin class AnkiPlugin) ]
-              ├─ DeckApi (デッキ一覧・ID解決)
-              ├─ ModelApi (ノートタイプ・フィールド定義・MID解決)
-              ├─ NoteApi (カード追加・差分マージ更新・重複判定)
-              └─ MediaApi (FileProvider メディア受け渡し)
-                          │
-                          ▼ (Android ContentProvider IPC)
-            [ AnkiDroid アプリ本体 (com.ichi2.anki) ]
-              └─ FlashCardsContract (内部 SQLite へ即時反映)
+[ Entei アプリ（フロントエンド: PlayerApp / Yomitan / 設定画面） ]
+                     │
+                     ▼ (統一モジュール IPC)
+[ Entei Modules プラグイン (plugins/tauri-plugin-modules) ]
+  ├─ 🎬 ytdlp      (YouTube ストリーム取得)
+  ├─ 🧲 torrent    (Magnet/Torrent P2P ストリーミング)
+  ├─ 📖 yomitan    (辞書エンジン・Dexie バックアップ)
+  ├─ 💬 jimaku     (字幕検索 API)
+  ├─ 🧠 nadeshiko  (例文検索 API)
+  └─ 📱 ankidroid  (AnkiDroid Connect / Android 専用モジュール) ★ここ！
+                     │
+                     ├─ #[cfg(not(target_os = "android"))]
+                     │     └─ デスクトップ: no-op またはローカル AnkiConnect プロキシ
+                     │
+                     └─ #[cfg(target_os = "android")]
+                           └─ Kotlin モバイルエンジン (@TauriPlugin)
+                                 │
+                                 ▼ (Android ContentProvider IPC)
+                   [ AnkiDroid アプリ本体 (com.ichi2.anki) ]
+                     └─ FlashCardsContract (内部 SQLite へ即時反映)
 ```
+
+### 1.2 なぜ「Entei Modules の配下」にするのか？
+1. **プラットフォーム統一と高凝集・疎結合**:
+   - アプリ側から見ると、外部機能への窓口は常に単一の **`tauri-plugin-modules`（Entei Modules）** だけになる。
+   - 個別のプラグイン（`tauri-plugin-ankidroid` 等）を乱立させず、IPC コマンドのネームスペースも `plugin:modules|modules_ankidroid_*` に一本化される。
+2. **モジュール管理画面（`/settings/?group=module`）とのシームレスな統合**:
+   -将来的に `ankidroid.module.json` を配置することで、Entei Modules のモジュール棚・設定画面へも他モジュールと全く同じ規格で並べることができる。
+3. **外部 APK ＆ HTTP サーバー（ポート8765）の完全排除**:
+   - AnkiDroid 公式の `AddContentApi`（`com.github.ankidroid:Anki-Android`）を Entei Modules の Android 依存として組み込むため、スマホ内で HTTP サーバーを一切立ち上げず、OS 標準の `ContentResolver` で超高速・省電力に直結する。
 
 ---
 
-## 3. コアコンポーネント設計（Kotlin / Tauri v2 Mobile）
+## 2. コアコンポーネント設計（Entei Modules 内包）
 
-### 3.1 Gradle 依存関係 (`plugins/tauri-plugin-anki/android/build.gradle.kts`)
-AGP 8+ 仕様に従い、`namespace` は `build.gradle.kts` で宣言し、Tauri モバイルプラグイン必須の依存を揃える：
+### 2.1 パッケージ・ディレクトリ構造
+`plugins/tauri-plugin-modules/` の中に Android ソースセットを配置し、Rust 側のモジュール `src/ankidroid.rs` から呼び出す：
+
+```text
+plugins/tauri-plugin-modules/
+├── Cargo.toml
+├── build.rs
+├── src/
+│   ├── lib.rs              # modules プラグイン登録・モジュール公開
+│   ├── ytdlp.rs
+│   ├── torrent.rs
+│   ├── yomitan.rs
+│   ├── jimaku.rs
+│   ├── nadeshiko.rs
+│   └── ankidroid.rs        # ★ AnkiDroid Connect モジュール (Rust 窓口)
+└── android/
+    ├── build.gradle.kts    # AGP 8+ 対応、Anki-Android API 依存
+    └── src/main/
+        ├── AndroidManifest.xml # package queries / FileProvider 定義 (package属性なし)
+        ├── res/xml/
+        │   └── anki_file_provider_paths.xml
+        └── java/org/gorakudo/entei/modules/ankidroid/
+            ├── AnkiDroidModule.kt  # @TauriPlugin モジュール本体
+            ├── DeckApi.kt          # デッキ操作
+            ├── ModelApi.kt         # ノートタイプ・フィールド・MID 逆引き
+            ├── NoteApi.kt          # カード追加・差分マージ更新・重複判定
+            └── MediaApi.kt         # FileProvider メディア連携
+```
+
+### 2.2 Gradle 依存関係 (`plugins/tauri-plugin-modules/android/build.gradle.kts`)
+AGP 8+ 仕様に従い、`namespace` は `build.gradle.kts` で宣言する：
 
 ```kotlin
 plugins {
@@ -69,7 +86,7 @@ plugins {
 }
 
 android {
-    namespace = "org.gorakudo.entei.anki"
+    namespace = "org.gorakudo.entei.modules"
     compileSdk = 36
 
     defaultConfig {
@@ -94,78 +111,50 @@ dependencies {
 }
 ```
 
-### 3.2 パッケージ構造とクラス責務
-Tauri v2 公式のモバイルプラグイン規約（`app.tauri.plugin.*`、`app.tauri.annotation.*`）に完全準拠する：
-```text
-plugins/tauri-plugin-anki/
-├── Cargo.toml
-├── build.rs
-├── src/
-│   ├── lib.rs              # プラグイン登録・.setup() でのモバイル登録
-│   ├── client.rs           # 既存 デスクトップ HTTP 127.0.0.1:8765 実装
-│   └── mobile.rs           # Tauri v2 run_mobile_plugin_async ブリッジ (target_os = "android")
-└── android/
-    ├── build.gradle.kts
-    └── src/main/
-        ├── AndroidManifest.xml # package queries / FileProvider 定義 (package属性なし)
-        ├── res/xml/
-        │   └── anki_file_provider_paths.xml
-        └── java/org/gorakudo/entei/anki/
-            ├── AnkiPlugin.kt       # @TauriPlugin class AnkiPlugin(activity: Activity) : Plugin(activity)
-            ├── DeckApi.kt          # デッキ操作
-            ├── ModelApi.kt         # ノートタイプ・フィールド・MID 逆引き
-            ├── NoteApi.kt          # カード追加・差分マージ更新・重複判定
-            └── MediaApi.kt         # FileProvider メディア連携
-```
-
-### 3.3 Tauri v2 モバイルハンドシェイク (`mobile.rs` & `lib.rs`)
-Rust 側と Kotlin 側のプラグイン結合は Tauri v2 公式の `register_android_plugin` を使用する：
+### 2.3 Tauri v2 モジュールハンドシェイク
+Entei Modules の初期化時（`lib.rs` の `.setup()`）において、モバイル環境（Android）でのみ AnkiDroid ネイティブモジュールを登録する：
 
 ```rust
-// plugins/tauri-plugin-anki/src/mobile.rs
+// plugins/tauri-plugin-modules/src/ankidroid.rs
 #[cfg(target_os = "android")]
-pub const PLUGIN_IDENTIFIER: &str = "org.gorakudo.entei.anki";
+pub const ANKIDROID_IDENTIFIER: &str = "org.gorakudo.entei.modules";
 
 #[cfg(target_os = "android")]
-pub fn init<R: tauri::Runtime, C: serde::de::DeserializeOwned>(
+pub fn init_android<R: tauri::Runtime, C: serde::de::DeserializeOwned>(
     _app: &tauri::AppHandle<R>,
     api: tauri::plugin::PluginApi<R, C>,
 ) -> tauri::Result<tauri::plugin::PluginHandle<R>> {
-    api.register_android_plugin(PLUGIN_IDENTIFIER, "AnkiPlugin")
+    api.register_android_plugin(ANKIDROID_IDENTIFIER, "AnkiDroidModule")
 }
 ```
 
-`lib.rs` のプラグインビルダーで `.setup` を接続し、プラグインハンドルを `app.manage` で管理：
-```rust
-// plugins/tauri-plugin-anki/src/lib.rs
-pub fn init<R: Runtime>() -> TauriPlugin<R> {
-    Builder::new("anki")
-        .setup(|app, api| {
-            #[cfg(target_os = "android")]
-            {
-                let handle = mobile::init(app, api)?;
-                app.manage(handle);
-            }
-            Ok(())
-        })
-        // ...
-}
-```
-
-Kotlin 側クラスは公式アノテーション `@TauriPlugin` を付与し、`activity` を受け取る：
+Kotlin 側のクラスは公式アノテーション `@TauriPlugin` を付与し、`activity` を受け取る：
 ```kotlin
-// plugins/tauri-plugin-anki/android/.../AnkiPlugin.kt
+// plugins/tauri-plugin-modules/android/.../AnkiDroidModule.kt
 @TauriPlugin
-class AnkiPlugin(private val activity: Activity) : Plugin(activity) {
+class AnkiDroidModule(private val activity: Activity) : Plugin(activity) {
     private val context: Context get() = activity.applicationContext
-    // @Command fun anki_request(invoke: Invoke) { ... }
-    // @Command fun anki_check_connection(invoke: Invoke) { ... }
+    // @Command fun ankidroid_request(invoke: Invoke) { ... }
+    // @Command fun ankidroid_check_connection(invoke: Invoke) { ... }
 }
 ```
 
 ---
 
-## 4. API 実装詳細と厳格な契約仕様
+## 3. モジュール API エンドポイント (`plugin:modules|...`)
+
+フロントエンドは Entei Modules を通じてすべてのアクションを実行する：
+
+### 3.1 登録される Tauri IPC コマンド
+1. **`modules_ankidroid_request(action: String, params: Value)`**:
+   - AnkiConnect 互換アクション（`version`, `deckNames`, `modelNames`, `addNote`, `updateNoteFields`, `storeMediaFile` 等）をディスパッチ。
+   - Android では Kotlin の `AnkiDroidModule` を `run_mobile_plugin_async` で呼び出し。
+2. **`modules_ankidroid_check_connection()`**:
+   - AnkiDroid のインストール状況（`api.apiHostSpecVersion >= 2`）、パーミッション、デッキ・モデル取得可否を一括判定して返却。
+
+---
+
+## 4. AnkiDroid API 実装詳細と厳格な契約仕様
 
 ### 4.1 デッキ管理 (`DeckApi`)
 `AddContentApi.deckList` プロパティを用いてデッキ一覧を抽出する（nullable な `Map<Long, String>?` を安全に受ける）。
@@ -176,7 +165,7 @@ class AnkiPlugin(private val activity: Activity) : Plugin(activity) {
 ### 4.2 ノートタイプ管理 (`ModelApi`)
 `AddContentApi.getModelList(minNumFields: Int)` および `getFieldList(modelId: Long)` を使用。
 - **`modelNames()`**: `api.getModelList(0)?.values?.toTypedArray() ?: emptyArray()`（引数 `0` で全件取得）。
-- **`modelNamesAndIds()`**: `api.getModelList(0)?.entries?.associate { it.value to it.key } ?: emptyMap()`
+- **`modelNamesAndIds()`**: `{ [modelName: string]: number }` のマップを返却。
 - **`modelFieldNames(modelName: String)`**: ノートタイプ名から内部 `modelId` を解決し、定義されているフィールド一覧（`String[]`）を正確な順序で返却。
 - **`getNoteModelId(noteId: Long)`**:
   - `AddContentApi.getNote()` の PROJECTION は `MID` を含まないため、以下の独立クエリで解決する：
@@ -194,7 +183,7 @@ class AnkiPlugin(private val activity: Activity) : Plugin(activity) {
 #### ① 重複判定 (`canAddNotes`)
 - モデルの第1フィールド名（`api.getFieldList(modelId)?.getOrNull(0) ?: throw Exception("Fields not found for model $modelId")`）を取得。
 - 送信されたデータの第1フィールド値（素テキスト）を取り出す。
-- `api.findDuplicateNotes(modelId, firstFieldText)` を呼び出し、該当ノートが存在するか確認する（※AnkiDroid 内部でクエリが安全に構築される）。
+- `api.findDuplicateNotes(modelId, firstFieldText)` を呼び出し、該当ノートが存在するか確認する。
 - `allowDuplicate: true` の場合は、第1フィールドが非空であれば無条件に `true`（追加可能）を返す。
 
 #### ② 新規カード追加 (`addNote`)
@@ -260,7 +249,7 @@ Android 11 以降の Scoped Storage 制約下で、Entei のアプリ内一時�
 
 ## 5. AnkiConnect アクション互換性マッピング表
 
-Entei が利用する AnkiConnect アクションと、本 Android ネイティブプラグインでの実装対応表：
+Entei Modules が受領し、AnkiDroid Connect モジュールへ中継するアクション対応表：
 
 | AnkiConnect アクション | 呼び出し元 | Android ネイティブでの実装方針 | 返却型 / 契約 |
 |---|---|---|---|
@@ -280,14 +269,14 @@ Entei が利用する AnkiConnect アクションと、本 Android ネイティ�
 | `notesInfo` | カード情報取得 | `FlashCardsContract.Note` のクエリ（MID から `api.getFieldList(mid)` で `{ [field]: { value, order } }` を構成） | `AnkiNoteInfo[]` |
 | `cardsInfo` | 追記時のデッキ名解決 | `FlashCardsContract.Card` から `Card.DECK_ID` を引き `deckList` からデッキ名を解決 | `AnkiCardInfo[]` |
 | `findCards` | 新規カード休止用 | `Note.CONTENT_URI` からカード ID を解決 | `number[]` |
-| `suspend` | 新規カード休止 | `AddContentApi` に suspend（queue書込み）API は存在しないため、未対応をログし fail-soft 復帰 | `boolean` (常に true 扱い) |
+| `suspend` | 新規カード休止 | `AddContentApi` に suspend API は存在しないため未対応をログし fail-soft 復帰 | `boolean` (常に true 扱い) |
 | `apiReflect` | AnkiDroid 自動判定 | 🚨 **`{ scopes: ["actions"] }` のみを返し `actions` 配列は返さない**（フロントエンドが `Array.isArray(actions) === false` を見て確実に `ankiDroidMode = true` と判定させるため） | `{ "scopes": ["actions"] }` |
 
 ---
 
 ## 6. AndroidManifest.xml とセキュリティ設定
 
-プラグイン配下（`plugins/tauri-plugin-anki/android/src/main/AndroidManifest.xml`）に以下を宣言する（※`package` 属性は指定せず `build.gradle.kts` の `namespace` で管理する）：
+プラグイン配下（`plugins/tauri-plugin-modules/android/src/main/AndroidManifest.xml`）に以下を宣言する（※`package` 属性は指定せず `build.gradle.kts` の `namespace` で管理する）：
 
 ```xml
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -328,8 +317,8 @@ Entei が利用する AnkiConnect アクションと、本 Android ネイティ�
 
 ## 7. フェイルソフトと接続チェック設計
 
-1. **`anki_check_connection` コマンドの Android 実装**:
-   - デスクトップの `AnkiClient::check_connection_once`（HTTP:8765）は Android では使えないため、`#[cfg(target_os = "android")]` で Kotlin プラグインの `anki_check_connection` コマンドへディスパッチする。
+1. **`modules_ankidroid_check_connection` コマンドの実装**:
+   - デスクトップのローカル HTTP は使わず、Kotlin の `AnkiDroidModule` を呼び出す。
    - Kotlin 側で `api.apiHostSpecVersion >= 2`、パーミッション有無、`api.deckList`、`api.getModelList(0)` の取得を順次検証し、`AnkiConnectionState { connected: Boolean, error: Option<String> }` を返却する。
 2. **AnkiDroid 未インストール / 旧バージョンの検知**:
    - `api.apiHostSpecVersion` をチェック。
@@ -342,11 +331,11 @@ Entei が利用する AnkiConnect アクションと、本 Android ネイティ�
 
 ## 8. 段階的な実装ロードマップ
 
-- **フェーズ 1: プラグインの骨組みと Gradle / Mobile 統合**
-  - `plugins/tauri-plugin-anki` に Android ソースセット（Kotlin）を新設
+- **フェーズ 1: Entei Modules 配下への Android モジュール新設と Gradle 統合**
+  - `plugins/tauri-plugin-modules` に Android ソースセット（Kotlin）を新設
   - `build.gradle.kts` に `Anki-Android` API、`queries`、`FileProvider` を配備
-  - `mobile.rs` で `register_android_plugin` と `run_mobile_plugin_async` を実装
-  - `anki_check_connection` および `version` の接続疎通確認を開通
+  - `src/ankidroid.rs` で `register_android_plugin` と `run_mobile_plugin_async` を実装
+  - `modules_ankidroid_check_connection` および `version` の接続疎通確認を開通
 - **フェーズ 2: コア API の Kotlin 実装**
   - `DeckApi`, `ModelApi`, `NoteApi`（差分マージ `updateNoteFields`、`findDuplicateNotes`）
   - `MediaApi`（FileProvider + `FILE_URI` + 拡張子除去 + 確定ファイル名返却）
