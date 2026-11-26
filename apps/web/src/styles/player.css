@@ -5030,13 +5030,13 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 .entei-magnet-list::-webkit-scrollbar-thumb {
-  background-color: oklch(100% 0 0deg / 0.18);
+  background-color: var(--entei-btn-color);
   border-radius: 999px;
 }
 
 .entei-magnet-list::-webkit-scrollbar-thumb:hover,
 .entei-magnet-list::-webkit-scrollbar-thumb:active {
-  background-color: var(--entei-btn-color);
+  background-color: var(--entei-accent-hover);
 }
 
 .entei-magnet-item {

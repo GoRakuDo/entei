@@ -70,10 +70,10 @@ const backgroundDeclarations = (body: string) =>
     ([prop]) => prop === 'background' || prop === 'background-color',
   );
 
-/** Thumb fill at rest: faint translucent white, OKLCH only (rule #1621). */
-const RESTING_THUMB = 'oklch(100% 0 0deg / 0.18)';
+/** Thumb fill at rest: themed button color. */
+const RESTING_THUMB = 'var(--entei-btn-color)';
 /** Thumb fill while hovered or dragged. */
-const ACTIVE_THUMB = 'var(--entei-btn-color)';
+const ACTIVE_THUMB = 'var(--entei-accent-hover)';
 
 describe('themed scrollbar (translucent pill, transparent track)', () => {
   it('styles/ ships at least the global and player stylesheets', () => {
@@ -114,7 +114,7 @@ describe('themed scrollbar (translucent pill, transparent track)', () => {
     expect(decls).toContainEqual(['background', 'transparent']);
   });
 
-  it('global.css: the resting thumb is the faint translucent white', () => {
+  it('global.css: the resting thumb is the button color', () => {
     const css = stripComments(read('global.css'));
     const body = ruleBody(css, '::-webkit-scrollbar-thumb');
     expect(body).not.toBeNull();
@@ -123,7 +123,7 @@ describe('themed scrollbar (translucent pill, transparent track)', () => {
     ]);
   });
 
-  it('global.css: hover and drag swap the thumb to --entei-btn-color', () => {
+  it('global.css: hover and drag swap the thumb to --entei-accent-hover', () => {
     const css = stripComments(read('global.css'));
     const rule =
       /::-webkit-scrollbar-thumb:hover,\s*::-webkit-scrollbar-thumb:active\s*\{([^}]*)\}/.exec(
