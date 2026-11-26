@@ -455,6 +455,7 @@ export const ja: Dictionary = {
     profilesDescription:
       'デッキやノートタイプごとに Anki カードのフォーマットを追加・カスタマイズします。',
     addProfileLabel: 'デッキプロファイルを追加',
+    addDenChouProfileLabel: 'DenChou プロファイルを追加',
     nameFieldLabel: '名前',
     buttonFieldLabel: 'ボタン',
     deckFieldLabel: 'デッキ',

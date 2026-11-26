@@ -60,6 +60,7 @@ import {
 } from '@/components/player/ui/popover';
 import {
   DEFAULT_ANKI_CONNECTION_PREFERENCES,
+  DEFAULT_CARD_FORMATS,
   readAnkiConnectionPreferences,
   updateAnkiConnectionPreferences,
   type AnkiCardFormat,
@@ -251,6 +252,17 @@ export function AnkiFieldProfilesCard({
     updateAnkiConnectionPreferences({ screenshotFormat: value });
   }, []);
 
+  const hasDenChouProfile = useMemo(
+    () =>
+      cardFormats.some(
+        (f) =>
+          f.id === 'denchou' ||
+          f.name.toLowerCase() === 'denchou' ||
+          f.model.toLowerCase() === 'denchou',
+      ),
+    [cardFormats],
+  );
+
   const handleAddProfile = useCallback(() => {
     setCardFormats((prev) => {
       const profile: AnkiCardFormat = {
@@ -268,6 +280,33 @@ export function AnkiFieldProfilesCard({
       return next;
     });
   }, [newProfileId]);
+
+  const handleAddDenChouProfile = useCallback(() => {
+    setCardFormats((prev) => {
+      const denchouPreset = DEFAULT_CARD_FORMATS.find(
+        (f) => f.id === 'denchou',
+      );
+      const profile: AnkiCardFormat = denchouPreset
+        ? {
+            ...denchouPreset,
+            deck: denchouPreset.deck,
+            fields: { ...denchouPreset.fields },
+          }
+        : {
+            id: 'denchou',
+            name: 'DenChou',
+            type: 'term',
+            icon: 'small-circle',
+            deck: 'Default',
+            model: 'DenChou',
+            fields: {},
+          };
+      const next = [...prev, profile];
+      updateAnkiConnectionPreferences({ cardFormats: next });
+      setExpandedId(profile.id);
+      return next;
+    });
+  }, []);
 
   const handleRemoveProfile = useCallback(
     (id: string) => {
@@ -366,6 +405,11 @@ export function AnkiFieldProfilesCard({
           <SettingsButton icon={SquarePlus} onClick={handleAddProfile}>
             {dict.addProfileLabel}
           </SettingsButton>
+          {!hasDenChouProfile && (
+            <SettingsButton icon={SquarePlus} onClick={handleAddDenChouProfile}>
+              {dict.addDenChouProfileLabel}
+            </SettingsButton>
+          )}
         </div>
       </div>
 

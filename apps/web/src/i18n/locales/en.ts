@@ -458,6 +458,7 @@ export const en: Dictionary = {
     profilesDescription:
       'Add and customize Anki card formats for different decks and note types.',
     addProfileLabel: 'Add Deck Profile',
+    addDenChouProfileLabel: 'Add DenChou Profile',
     nameFieldLabel: 'Name',
     buttonFieldLabel: 'Button',
     deckFieldLabel: 'Deck',

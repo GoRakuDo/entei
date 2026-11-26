@@ -522,6 +522,7 @@ export interface Dictionary {
     profilesLabel: string;
     profilesDescription: string;
     addProfileLabel: string;
+    addDenChouProfileLabel: string;
     nameFieldLabel: string;
     buttonFieldLabel: string;
     deckFieldLabel: string;

@@ -457,6 +457,7 @@ export const id: Dictionary = {
     profilesDescription:
       'Tambahkan dan sesuaikan format kartu Anki untuk dek dan jenis catatan yang berbeda.',
     addProfileLabel: 'Tambah Profil Dek',
+    addDenChouProfileLabel: 'Tambah Profil DenChou',
     nameFieldLabel: 'Nama',
     buttonFieldLabel: 'Tombol',
     deckFieldLabel: 'Dek',

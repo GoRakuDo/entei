@@ -514,6 +514,13 @@ body[data-page='settings'] .entei-main {
   min-width: 0;
 }
 
+.entei-anki-profiles-toolbar .entei-module-field-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  width: 100%;
+}
+
 /* Switch rows keep the toggle on the row's trailing edge instead of under
    the label (the label itself is clickable via htmlFor). */
 .entei-module-field--switch .entei-module-field-control {
@@ -1588,6 +1595,14 @@ body[data-page='settings'] .entei-main {
   .entei-anki-profiles-toolbar .entei-action-btn {
     width: 15rem;
     min-width: 15rem;
+  }
+
+  .entei-anki-profiles-toolbar .entei-module-field-control {
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-8);
+    align-items: flex-end;
+    width: auto;
   }
 
   .entei-module-field--textarea {
