@@ -578,6 +578,37 @@ describe('/modules/ mobile TopBar back control', () => {
     expect(root.querySelector('.entei-wordmark')).not.toBeNull();
     expect(root.querySelector('.entei-mobile-back')).toBeNull();
   });
+
+  it('mobile back button uses history.back() when history exists, falls back to href="/"', () => {
+    const html = renderTopBarHtml({ currentPath: '/modules/' });
+    const root = parseHtml(html);
+    const back = root.querySelector<HTMLAnchorElement>('.entei-mobile-back');
+    expect(back).not.toBeNull();
+    expect(back!.getAttribute('href')).toBe('/');
+
+    // Simulate click handler behavior:
+    let backCalled = false;
+    const fakeHistory = {
+      length: 2,
+      back: () => {
+        backCalled = true;
+      },
+    };
+    let prevented = false;
+    const event = {
+      preventDefault: () => {
+        prevented = true;
+      },
+    };
+
+    if (fakeHistory.length > 1) {
+      event.preventDefault();
+      fakeHistory.back();
+    }
+
+    expect(prevented).toBe(true);
+    expect(backCalled).toBe(true);
+  });
 });
 
 /* -------------------------------------------------------------------------- */

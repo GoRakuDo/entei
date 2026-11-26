@@ -1239,13 +1239,36 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
     window.addEventListener('scroll', queuedHandleScroll, { passive: true });
   }
 
+  /**
+   * Leaf-screen back button (mobile header):
+   * If the user came from another page within the app (e.g. navigated from
+   * /settings/ or /profile/ to player), clicking back goes back in browser
+   * history rather than unconditionally dumping them onto the home feed.
+   */
+  function initMobileBack() {
+    const backBtn = document.querySelector<HTMLAnchorElement>('.entei-mobile-back');
+    if (!backBtn || backBtn.dataset.backBound) return;
+    backBtn.dataset.backBound = 'true';
+    backBtn.addEventListener('click', (e) => {
+      if (
+        window.history.length > 1 &&
+        (!document.referrer || document.referrer.startsWith(window.location.origin))
+      ) {
+        e.preventDefault();
+        window.history.back();
+      }
+    });
+  }
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
       initMobileDockAutoHide();
       initDesktopPillScrollAutoHide();
+      initMobileBack();
     });
   } else {
     initMobileDockAutoHide();
     initDesktopPillScrollAutoHide();
+    initMobileBack();
   }
 </script>
