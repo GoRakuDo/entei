@@ -48,12 +48,10 @@ import {
   MessageSquareText,
   Palette,
   PanelLeft,
-  Plug,
   Puzzle,
   type LucideIcon,
 } from 'lucide-react';
 import { PlayingCardsFan } from '@/components/settings/PlayingCardsFan';
-import { AnkiFieldsTab } from '@/components/player/AnkiFieldsTab';
 import {
   SubtitleAppearanceTab,
   type SubtitleAppearanceSettings,
@@ -81,9 +79,6 @@ import {
 import { MODULES_CHANGED_EVENT } from '@/features/modules/use-module-registry';
 import { initSettingsSync } from '@/features/settings/settings-store';
 import { SettingsButton } from '@/components/settings/SettingsButton';
-import {
-  dispatchAnkiSessionCredentials,
-} from '@/features/player/settings-bridge';
 import {
   LOCALE_CHANGE_EVENT,
   type LocaleChangeDetail,
@@ -579,17 +574,6 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
               />
             </section>
 
-            {/* Player Anki Fields (AnkiConnect + field mapping) */}
-            <section className="entei-settings-section-card">
-              <h3 className="entei-settings-label">
-                <Plug size={18} aria-hidden="true" /> {playerUI.settingsTabAnki}
-              </h3>
-              <AnkiFieldsTab
-                dict={playerUI}
-                onSessionCredentials={dispatchAnkiSessionCredentials}
-              />
-            </section>
-
             {/* Keyboard shortcuts reference */}
             <section className="entei-settings-section-card">
               <h3 className="entei-settings-label">
@@ -619,8 +603,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
           </div>
         )}
 
-        {/* Anki — AnkiConnect connection (field mapping stays under General
-            for now; this page owns the connection card). */}
+        {/* Anki — connection, card managements, field profiles, miscellaneous */}
         {selection.group === 'anki' && (
           <div className="entei-settings-section-stack">
             <AnkiConnectionCard dict={dict.ankiConnection} notEditable={dict.yomitanSettings.notEditable} />

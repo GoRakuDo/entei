@@ -1833,13 +1833,6 @@ body[data-page='settings'] .entei-main {
     white-space: nowrap;
   }
 
-  .entei-anki-denchou-preset .entei-anki-connect-btn {
-    width: 15rem;
-    min-width: 15rem;
-    flex-shrink: 0;
-    white-space: nowrap;
-  }
-
   /* Desktop sync mode card: title + desc on left, toggle group on right */
   .entei-settings-section-card--sync {
     flex-direction: row;
