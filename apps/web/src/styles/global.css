@@ -131,50 +131,42 @@ html {
  * breaks the dark shell on every scroll container (page body, magnet file
  * list, subtitle panel, settings tabs).
  *
- * Why the standard pair is NOT declared here: as soon as `scrollbar-width` or
- * `scrollbar-color` is set to anything but its initial value, Chromium 121+
- * stops honouring ::-webkit-scrollbar and paints its own standard bar, whose
- * track came out as an opaque black gutter sitting on top of the wallpaper.
- * The ::-webkit-scrollbar pseudo-elements are therefore the single source of
- * truth, and they give a genuinely transparent track.
+ * Only the standard pair is declared here. No `::-webkit-scrollbar`
+ * pseudo-element may ever be authored again: styling them forces Chromium
+ * onto its classic (in-flow) scrollbar implementation, which reserves a
+ * permanent 6px gutter and paints an opaque track over the wallpaper — that
+ * is exactly the black groove `4f15fe2` had already eliminated and that the
+ * later switch to pseudo-elements brought back.
+ *
+ * Tauri launches WebView2 with `--enable-features=OverlayScrollbar`
+ * (src-tauri/tauri.conf.json → `additionalBrowserArgs`), so the standard pair
+ * below renders a TRUE overlay bar: zero layout width, the wallpaper reaches
+ * the physical window edge, and the pill is drawn ON TOP of the content.
  *
  * Contract:
- *   thumb at rest      → var(--entei-btn-color)
- *   thumb hover / drag → var(--entei-accent-hover)
- *   track + corner     → transparent, so the gradient wallpaper shows through
- *   size               → 6px pill
+ *   width → thin
+ *   thumb → var(--entei-btn-color)
+ *   track → transparent, so the gradient wallpaper shows through
+ *
+ * Trade-off: the standard pair has no hover/drag state, so the pill keeps
+ * `--entei-btn-color` for its whole life (the removed ::-webkit-scrollbar
+ * rules could swap to `--entei-accent-hover` on hover, but only by paying the
+ * 6px gutter). A zero-width overlay that never moves the layout is worth more
+ * than a hover colour.
+ *
+ * `scrollbar-color` inherits, so inner scroll containers (magnet list,
+ * subtitle panel, …) pick the theme up without redeclaring it.
+ * `scrollbar-width` does not inherit; a container that wants a slim bar
+ * declares `thin` itself (see `.entei-magnet-list` in player.css).
  *
  * `scrollbar-width: none` is still used by the intentionally hidden strips
  * (settings tabs, magnet breadcrumb); hiding is all that it does.
  *
  * OKLCH only — no hex/rgb/hsl/named colours (project rule #1621).
  */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-  background: transparent;
-}
-
-::-webkit-scrollbar-track {
-  background: linear-gradient(
-    to bottom,
-    oklch(16% 0.03 285deg),
-    oklch(11% 0.015 285deg)
-  );
-}
-
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background-color: var(--entei-btn-color);
-  border-radius: 999px;
-}
-
-::-webkit-scrollbar-thumb:hover,
-::-webkit-scrollbar-thumb:active {
-  background-color: var(--entei-accent-hover);
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: var(--entei-btn-color) transparent;
 }
 
 /* ===== FOUC PREVENTION (PHASE0.md 8.223, 20.541) =====

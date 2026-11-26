@@ -5010,33 +5010,13 @@ html.entei-player-immersive .entei-player-audio-area {
   max-height: 20rem;
   overflow-y: auto;
   padding: 0 0 var(--entei-space-8);
-  /* Slim scrollbar (same contract as global.css): a 20rem capped list that
-     fills up on multi-file magnets must not sprout the light Windows classic
-     bar. Only the ::-webkit-scrollbar pseudo-elements are declared — setting
-     `scrollbar-width`/`scrollbar-color` would make Chromium fall back to its
-     standard bar with an opaque black track over the wallpaper.
-     Thumb = faint translucent white at rest, --entei-btn-color on hover/drag,
-     track fully transparent, 6px. OKLCH only (project rule #1621). */
-}
-
-.entei-magnet-list::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-  background: transparent;
-}
-
-.entei-magnet-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.entei-magnet-list::-webkit-scrollbar-thumb {
-  background-color: var(--entei-btn-color);
-  border-radius: 999px;
-}
-
-.entei-magnet-list::-webkit-scrollbar-thumb:hover,
-.entei-magnet-list::-webkit-scrollbar-thumb:active {
-  background-color: var(--entei-accent-hover);
+  /* Slim overlay scrollbar (same contract as global.css): a 20rem capped list
+     that fills up on multi-file magnets must not sprout the light Windows
+     classic bar. Only `scrollbar-width` is declared — thumb/track colours are
+     inherited from the `:root` `scrollbar-color` pair, and no
+     ::-webkit-scrollbar pseudo-element is used (that would force Chromium's
+     classic in-flow bar and reserve a 6px gutter over the wallpaper). */
+  scrollbar-width: thin;
 }
 
 .entei-magnet-item {

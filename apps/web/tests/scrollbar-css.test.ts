@@ -1,22 +1,29 @@
 /**
  * Static contract test for the themed scrollbar.
  * ---------------------------------------------------------------------------
- * Approved reference: a faint translucent pill at rest that turns into the
- * button colour while hovered/dragged, over a FULLY TRANSPARENT track so the
- * gradient wallpaper shows through.
+ * Approved reference: the button-coloured pill drawn ON TOP of the content
+ * (true overlay scrollbar), over a transparent track, with NO layout gutter so
+ * the gradient wallpaper reaches the physical window edge.
  *
- *   ::-webkit-scrollbar        → 6px, transparent box
- *   ::-webkit-scrollbar-track  → transparent
- *   ::-webkit-scrollbar-corner → transparent
- *   ::-webkit-scrollbar-thumb  → oklch(100% 0 0deg / 0.18)
- *   :hover / :active           → var(--entei-btn-color)
+ * Single source of truth — the standard pair on `:root`:
  *
- * The standard `scrollbar-width`/`scrollbar-color` pair is deliberately NOT
- * declared for visible bars: on Chromium 121+ setting either one to a
- * non-initial value makes the engine ignore ::-webkit-scrollbar and paint its
- * own standard bar, whose track rendered as an opaque black gutter on top of
- * the wallpaper. `scrollbar-width: none` stays allowed for the intentionally
- * hidden strips.
+ *   :root {
+ *     scrollbar-width: thin;
+ *     scrollbar-color: var(--entei-btn-color) transparent;
+ *   }
+ *
+ * Tauri launches WebView2 with `--enable-features=OverlayScrollbar`
+ * (src-tauri/tauri.conf.json → `additionalBrowserArgs`), so the standard pair
+ * renders a zero-width overlay bar.
+ *
+ * `::-webkit-scrollbar` pseudo-elements are forbidden for anything that sizes
+ * or paints a bar: styling them forces Chromium onto its classic (in-flow)
+ * scrollbar implementation, which reserves a permanent 6px gutter and paints
+ * an opaque track over the wallpaper — the black groove `4f15fe2` eliminated
+ * and a later switch to pseudo-elements brought back.
+ * `::-webkit-scrollbar { display: none }` stays allowed: it draws nothing and
+ * reserves nothing, and it is the pre-121 belt for the intentionally hidden
+ * strips (which also declare `scrollbar-width: none`).
  *
  * Pixel appearance itself is verified in the browser; this test only guards
  * the selector/declaration contract.
@@ -34,20 +41,7 @@ const cssFiles = readdirSync(stylesDir)
   .sort();
 
 const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '');
-
-/**
- * Returns the declaration block of one exact selector, or null when absent.
- * Anchored on a block boundary so `::-webkit-scrollbar` does not match
- * `::-webkit-scrollbar-track` (and `.foo::-webkit-scrollbar` stays separate).
- */
-function ruleBody(css: string, selector: string): string | null {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = new RegExp(
-    `(?:^|[},])\\s*${escaped}\\s*\\{([^}]*)\\}`,
-    'm',
-  ).exec(css);
-  return match?.[1] ?? null;
-}
+const cssOf = (name: string) => stripComments(read(name));
 
 /** `prop: value` pairs of a declaration block. */
 function declarations(body: string): Array<[string, string]> {
@@ -64,131 +58,101 @@ function declarations(body: string): Array<[string, string]> {
     });
 }
 
-/** Every declaration that would paint the scrollbar track. */
-const backgroundDeclarations = (body: string) =>
-  declarations(body).filter(
-    ([prop]) => prop === 'background' || prop === 'background-color',
-  );
+/** Every declaration block whose selector mentions `::-webkit-scrollbar`. */
+function webkitScrollbarRules(
+  css: string,
+): Array<{ selector: string; body: string }> {
+  const found: Array<{ selector: string; body: string }> = [];
+  for (const match of css.matchAll(
+    /(?:^|[},])\s*([^{}]*::-webkit-scrollbar[^{}]*)\{([^}]*)\}/gm,
+  )) {
+    found.push({ selector: (match[1] ?? '').trim(), body: match[2] ?? '' });
+  }
+  return found;
+}
 
-/** Thumb fill at rest: themed button color. */
-const RESTING_THUMB = 'var(--entei-btn-color)';
-/** Thumb fill while hovered or dragged. */
-const ACTIVE_THUMB = 'var(--entei-accent-hover)';
+/** All declaration blocks of one exact selector. */
+function ruleBodies(css: string, selector: string): string[] {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(?:^|[},])\\s*${escaped}\\s*\\{([^}]*)\\}`, 'gm');
+  return [...css.matchAll(re)].map((match) => match[1] ?? '');
+}
 
-describe('themed scrollbar (translucent pill, transparent track)', () => {
+/** Thumb fill at rest: themed button color, transparent track. */
+const SCROLLBAR_COLOR = 'var(--entei-btn-color) transparent';
+/** Declarations that would size or paint a classic bar. */
+const BAR_DECLARATIONS = new Set([
+  'width',
+  'height',
+  'background',
+  'background-color',
+  'border-radius',
+  'border',
+  'box-shadow',
+]);
+
+describe('themed scrollbar (overlay pill, no gutter)', () => {
   it('styles/ ships at least the global and player stylesheets', () => {
     expect(cssFiles).toContain('global.css');
     expect(cssFiles).toContain('player.css');
   });
 
+  it('global.css: :root owns the standard pair', () => {
+    const blocks = ruleBodies(cssOf('global.css'), ':root');
+    const pair = blocks.find((body) => body.includes('scrollbar-width'));
+    expect(pair).toBeDefined();
+    expect(declarations(pair!)).toEqual([
+      ['scrollbar-width', 'thin'],
+      ['scrollbar-color', SCROLLBAR_COLOR],
+    ]);
+  });
+
+  it('global.css: no ::-webkit-scrollbar rule may exist at all', () => {
+    expect(webkitScrollbarRules(cssOf('global.css'))).toEqual([]);
+  });
+
   for (const file of cssFiles) {
-    it(`${file}: never declares scrollbar-color (it kills the webkit track)`, () => {
-      const css = stripComments(read(file));
-      const offenders = [...css.matchAll(/scrollbar-color\s*:\s*([^;]+);/g)].map(
-        (m) => m[1]?.trim() ?? '',
-      );
+    it(`${file}: ::-webkit-scrollbar only ever hides a bar`, () => {
+      const offenders = webkitScrollbarRules(cssOf(file))
+        .filter((rule) =>
+          declarations(rule.body).some(([prop]) => BAR_DECLARATIONS.has(prop)),
+        )
+        .map((rule) => rule.selector);
       expect(offenders).toEqual([]);
     });
 
-    it(`${file}: scrollbar-width is only ever \`none\``, () => {
-      const css = stripComments(read(file));
+    it(`${file}: scrollbar-width is only ever \`thin\` or \`none\``, () => {
       const offenders: string[] = [];
-      for (const match of css.matchAll(/scrollbar-width\s*:\s*([^;]+);/g)) {
+      for (const match of cssOf(file).matchAll(/scrollbar-width\s*:\s*([^;]+);/g)) {
         const value = (match[1] ?? '').replace(/\s+/g, ' ').trim();
-        // `none` is the intentional hide used by the settings tab strip, the
-        // magnet breadcrumb and the settings dialog body.
-        if (value === 'none') continue;
+        // `none` is the intentional hide used by the settings tab strip and
+        // the magnet breadcrumb; `thin` is the visible overlay pill.
+        if (value === 'none' || value === 'thin') continue;
         offenders.push(value);
       }
       expect(offenders).toEqual([]);
     });
+
+    it(`${file}: scrollbar-color is only the documented pair`, () => {
+      const values = [
+        ...cssOf(file).matchAll(/scrollbar-color\s*:\s*([^;]+);/g),
+      ].map((match) => (match[1] ?? '').replace(/\s+/g, ' ').trim());
+      expect(values.filter((value) => value !== SCROLLBAR_COLOR)).toEqual([]);
+    });
   }
 
-  it('global.css: the bar is a 6px transparent box', () => {
-    const css = stripComments(read('global.css'));
-    const body = ruleBody(css, '::-webkit-scrollbar');
-    expect(body).not.toBeNull();
-    const decls = declarations(body!);
-    expect(decls).toContainEqual(['width', '6px']);
-    expect(decls).toContainEqual(['height', '6px']);
-    expect(decls).toContainEqual(['background', 'transparent']);
-  });
+  it('player.css: the magnet list asks for the slim bar and inherits the colour', () => {
+    const css = cssOf('player.css');
+    const list = ruleBodies(css, '.entei-magnet-list');
+    expect(list.length).toBeGreaterThan(0);
+    expect(declarations(list[0]!)).toContainEqual(['scrollbar-width', 'thin']);
+    expect(
+      declarations(list[0]!).filter(([prop]) => prop === 'scrollbar-color'),
+    ).toEqual([]);
 
-  it('global.css: the resting thumb is the button color', () => {
-    const css = stripComments(read('global.css'));
-    const body = ruleBody(css, '::-webkit-scrollbar-thumb');
-    expect(body).not.toBeNull();
-    expect(backgroundDeclarations(body!)).toEqual([
-      ['background-color', RESTING_THUMB],
-    ]);
-  });
-
-  it('global.css: hover and drag swap the thumb to --entei-accent-hover', () => {
-    const css = stripComments(read('global.css'));
-    const rule =
-      /::-webkit-scrollbar-thumb:hover,\s*::-webkit-scrollbar-thumb:active\s*\{([^}]*)\}/.exec(
-        css,
-      );
-    expect(rule).not.toBeNull();
-    expect(backgroundDeclarations(rule![1]!)).toEqual([
-      ['background-color', ACTIVE_THUMB],
-    ]);
-    // No brightness/glow trickery: the state change is a plain fill swap.
-    expect(rule![1]).not.toContain('filter');
-    expect(rule![1]).not.toContain('box-shadow');
-  });
-
-  it('global.css: track matches wallpaper gradient and corner stays transparent', () => {
-    const css = stripComments(read('global.css'));
-    const track = ruleBody(css, '::-webkit-scrollbar-track');
-    expect(track).not.toBeNull();
-    expect(declarations(track!)).toEqual([
-      [
-        'background',
-        'linear-gradient(\n    to bottom,\n    oklch(16% 0.03 285deg),\n    oklch(11% 0.015 285deg)\n  )',
-      ],
-    ]);
-
-    const corner = ruleBody(css, '::-webkit-scrollbar-corner');
-    expect(corner).not.toBeNull();
-    expect(backgroundDeclarations(corner!)).toEqual([
-      ['background', 'transparent'],
-    ]);
-  });
-
-  it('player.css: the magnet list keeps its own 6px pill', () => {
-    const css = stripComments(read('player.css'));
-    const list = ruleBody(css, '.entei-magnet-list');
-    expect(list).not.toBeNull();
-    const decls = declarations(list!);
-    expect(decls).not.toContainEqual(['scrollbar-width', 'thin']);
-
-    const size = ruleBody(css, '.entei-magnet-list::-webkit-scrollbar');
-    expect(size).not.toBeNull();
-    expect(declarations(size!)).toContainEqual(['width', '6px']);
-    expect(declarations(size!)).toContainEqual(['height', '6px']);
-    expect(declarations(size!)).toContainEqual(['background', 'transparent']);
-
-    const track = ruleBody(css, '.entei-magnet-list::-webkit-scrollbar-track');
-    expect(track).not.toBeNull();
-    expect(backgroundDeclarations(track!)).toEqual([
-      ['background', 'transparent'],
-    ]);
-
-    const thumb = ruleBody(css, '.entei-magnet-list::-webkit-scrollbar-thumb');
-    expect(thumb).not.toBeNull();
-    expect(backgroundDeclarations(thumb!)).toEqual([
-      ['background-color', RESTING_THUMB],
-    ]);
-
-    const hover =
-      /\.entei-magnet-list::-webkit-scrollbar-thumb:hover,\s*\.entei-magnet-list::-webkit-scrollbar-thumb:active\s*\{([^}]*)\}/.exec(
-        css,
-      );
-    expect(hover).not.toBeNull();
-    expect(backgroundDeclarations(hover![1]!)).toEqual([
-      ['background-color', ACTIVE_THUMB],
-    ]);
-    expect(hover![1]).not.toContain('filter');
+    const scoped = webkitScrollbarRules(css).filter((rule) =>
+      rule.selector.includes('.entei-magnet-list'),
+    );
+    expect(scoped).toEqual([]);
   });
 });
