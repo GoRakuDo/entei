@@ -138,18 +138,22 @@ describe('themed scrollbar (translucent pill, transparent track)', () => {
     expect(rule![1]).not.toContain('box-shadow');
   });
 
-  it('global.css: track and corner stay fully transparent, no black gutter', () => {
+  it('global.css: track matches wallpaper gradient and corner stays transparent', () => {
     const css = stripComments(read('global.css'));
-    for (const selector of [
-      '::-webkit-scrollbar-track',
-      '::-webkit-scrollbar-corner',
-    ]) {
-      const body = ruleBody(css, selector);
-      expect(body).not.toBeNull();
-      expect(backgroundDeclarations(body!)).toEqual([
-        ['background', 'transparent'],
-      ]);
-    }
+    const track = ruleBody(css, '::-webkit-scrollbar-track');
+    expect(track).not.toBeNull();
+    expect(declarations(track!)).toEqual([
+      [
+        'background',
+        'linear-gradient(\n    to bottom,\n    oklch(16% 0.03 285deg),\n    oklch(11% 0.015 285deg)\n  )',
+      ],
+    ]);
+
+    const corner = ruleBody(css, '::-webkit-scrollbar-corner');
+    expect(corner).not.toBeNull();
+    expect(backgroundDeclarations(corner!)).toEqual([
+      ['background', 'transparent'],
+    ]);
   });
 
   it('player.css: the magnet list keeps its own 6px pill', () => {

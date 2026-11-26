@@ -156,7 +156,11 @@ html {
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: linear-gradient(
+    to bottom,
+    oklch(16% 0.03 285deg),
+    oklch(11% 0.015 285deg)
+  );
 }
 
 ::-webkit-scrollbar-corner {
