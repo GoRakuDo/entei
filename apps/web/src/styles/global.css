@@ -106,9 +106,10 @@ html {
   font-size: 100%; /* Respect user font-size preference (PHASE0.md 14.374-376) */
   scroll-behavior: smooth;
   /* Window transparency (tauri.conf.json `transparent: true`) lets libmpv
-   * paint behind the webview. The root must still be opaque, otherwise the
-   * desktop shows through every pixel the HTML layer does not paint. */
-  background-color: var(--entei-black-950);
+   * paint behind the webview. The root background is transparent so the
+   * permanent wallpaper layer (`html::before`) shows through the scrollbar
+   * track seamlessly without creating a black gutter. */
+  background-color: transparent;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
@@ -219,12 +220,12 @@ html::before {
   position: fixed;
   top: 0;
   left: 0;
+  right: 0;
   bottom: 0;
-  /* 100vw includes the classic scrollbar strip: the scrollbar track is
-     transparent on purpose (see the scrollbar contract above), so the
-     wallpaper has to reach it — otherwise the track would show the desktop
-     through the transparent Tauri window. */
-  width: 100vw;
+  /* `left: 0; right: 0;` covers the true physical window width including the
+     scrollbar track. In WebView2/Chromium, `width: 100vw` excluded the classic
+     scrollbar strip, exposing the transparent Tauri window (desktop bleed-through).
+     With right: 0, the wallpaper extends fully under the transparent track. */
   z-index: -1;
   pointer-events: none;
   background-color: var(--entei-bg);
