@@ -126,51 +126,38 @@ html {
   }
 }
 
-/* ===== SCROLLBARS =====
- * WebView2/Chromium ships the chunky light Windows classic scrollbar, which
- * breaks the dark shell on every scroll container (page body, magnet file
- * list, subtitle panel, settings tabs).
- *
- * Why the standard pair is NOT declared here: as soon as `scrollbar-width` or
- * `scrollbar-color` is set to anything but its initial value, Chromium 121+
- * stops honouring ::-webkit-scrollbar and paints its own standard bar, whose
- * track came out as an opaque black gutter sitting on top of the wallpaper.
- * The ::-webkit-scrollbar pseudo-elements are therefore the single source of
- * truth, and they give a genuinely transparent track.
- *
- * Contract:
- *   thumb at rest      → oklch(100% 0 0deg / 0.18)  (faint translucent white)
- *   thumb hover / drag → var(--entei-btn-color)
- *   track + corner     → transparent, so the gradient wallpaper shows through
- *   size               → 6px pill
- *
- * `scrollbar-width: none` is still used by the intentionally hidden strips
- * (settings tabs, magnet breadcrumb); hiding is all that it does.
- *
- * OKLCH only — no hex/rgb/hsl/named colours (project rule #1621).
- */
-::-webkit-scrollbar {
+/* ===== SCROLLBAR STYLING - GLOBAL DESIGN (GoRakuDo Parity) ===== */
+
+/* Standard scrollbar styling (Firefox + modern Chromium) */
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(100% 0 0deg / 0.18) transparent;
+}
+
+/* WebKit scrollbar styling - applied at root level for higher specificity */
+:root::-webkit-scrollbar {
   width: 6px;
   height: 6px;
   background: transparent;
 }
 
-::-webkit-scrollbar-track {
+:root::-webkit-scrollbar-track {
+  border: transparent;
   background: transparent;
 }
 
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background-color: oklch(100% 0 0deg / 0.18);
+:root::-webkit-scrollbar-thumb {
   border-radius: 999px;
+  background-color: oklch(100% 0 0deg / 0.18);
 }
 
-::-webkit-scrollbar-thumb:hover,
-::-webkit-scrollbar-thumb:active {
+:root::-webkit-scrollbar-thumb:hover,
+:root::-webkit-scrollbar-thumb:active {
   background-color: var(--entei-btn-color);
+}
+
+:root::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* ===== FOUC PREVENTION (PHASE0.md 8.223, 20.541) =====
