@@ -106,10 +106,16 @@ html {
   font-size: 100%; /* Respect user font-size preference (PHASE0.md 14.374-376) */
   scroll-behavior: smooth;
   /* Window transparency (tauri.conf.json `transparent: true`) lets libmpv
-   * paint behind the webview. The root background is transparent so the
-   * permanent wallpaper layer (`html::before`) shows through the scrollbar
-   * track seamlessly without creating a black gutter. */
-  background-color: transparent;
+   * paint behind the webview. Painting the wallpaper on `html` directly covers
+   * the true physical window edge — including the classic scrollbar track, which
+   * is transparent on purpose (see scrollbar contract below). This eliminates
+   * both the opaque black gutter and desktop bleed-through through the track. */
+  background-color: var(--entei-black-950);
+  background-image: var(--entei-bg-image);
+  background-repeat: no-repeat;
+  background-size: var(--entei-bg-size);
+  background-position: var(--entei-bg-position);
+  background-attachment: fixed;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
