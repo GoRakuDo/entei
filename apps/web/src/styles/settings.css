@@ -1713,7 +1713,8 @@ body[data-page='settings'] .entei-main {
 
   /* The left nav IS the mobile menu / submenu list. */
   .entei-settings-nav {
-    padding: var(--entei-space-16) var(--entei-gutter);
+    padding: var(--entei-space-16) var(--entei-gutter)
+      calc(var(--entei-space-32) + var(--entei-dock-height));
   }
 
   /* On mobile the children live in their own submenu screen, so the inline
@@ -1741,7 +1742,7 @@ body[data-page='settings'] .entei-main {
   }
 
   .entei-settings-mobile-header {
-    padding-block-start: var(--entei-space-8);
+    padding-block-start: calc(var(--entei-safe-top) + var(--entei-space-12));
   }
 
   .entei-settings-content {

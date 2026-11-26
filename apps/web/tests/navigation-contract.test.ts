@@ -150,16 +150,18 @@ function renderTopBarHtml(opts: {
   const activePath = normalisePath(currentPath);
   const isPlayer = activePath === '/player';
   const isHome = activePath === '/';
+  const isSettings =
+    activePath === '/settings' || activePath.startsWith('/settings/');
   /** App-wide auto-hide pill: every route but Home (sidebar) and the players. */
   const isAutoHidePill = !isHome && !isPlayer;
   const autoHidePill = !isHome;
   const isModules =
     activePath === '/modules' || activePath.startsWith('/modules/');
 
-  // Mobile sticky header — not rendered on Home (dock-only mobile Home).
+  // Mobile sticky header — not rendered on Home or Settings (dock-only mobile surfaces).
   // `/modules/` swaps brand + language selector for a single back control.
   let html = '';
-  if (!isHome) {
+  if (!isHome && !isSettings) {
     html += `<header class="entei-topbar-mobile" role="banner"><div class="entei-topbar-mobile-inner">`;
     if (isModules) {
       html += `<a class="entei-mobile-back" href="/" data-i18n="modulesPage.back"><span>Kembali</span></a>`;
@@ -217,7 +219,7 @@ function renderTopBarHtml(opts: {
   }
 
   // Mobile dock: MOBILE_DESTINATIONS (Home) + Immersion Tools + Settings entries.
-  html += `<nav class="entei-mobile-dock" aria-label="Page navigation" data-entei-mobile-dock data-i18n-aria-label="nav.mobileDockLabel"${isHome ? ' data-entei-mobile-dock-scroll-only=""' : ''}>`;
+  html += `<nav class="entei-mobile-dock" aria-label="Page navigation" data-entei-mobile-dock data-i18n-aria-label="nav.mobileDockLabel"${isHome || isSettings ? ' data-entei-mobile-dock-scroll-only=""' : ''}>`;
   for (const { route, labelKey } of MOBILE_DESTINATIONS) {
     const isActive = normalisePath(route) === activePath;
     html += `<a class="entei-mobile-dock-link" href="${route}"${isActive ? ' aria-current="page"' : ''} data-entei-nav-destination="${route}"><span data-i18n="nav.${labelKey}">${labelKey}</span></a>`;
@@ -410,14 +412,26 @@ describe('Mobile sticky header presence per route', () => {
     const html = renderTopBarHtml({ currentPath: '/player/' });
     expect(html).toContain('entei-topbar-mobile');
   });
+
+  it('Settings: mobile header absent (dock-only mobile settings)', () => {
+    const html = renderTopBarHtml({ currentPath: '/settings/' });
+    expect(html).not.toContain('entei-topbar-mobile');
+  });
 });
 
 /* -------------------------------------------------------------------------- */
-/*  6c. Mobile dock on Home: scroll-only (no idle auto-hide)                  */
+/*  6c. Mobile dock on Home & Settings: scroll-only (no idle auto-hide)       */
 /* -------------------------------------------------------------------------- */
 describe('Mobile dock scroll-only mode on Home', () => {
   it('Home: dock carries data-entei-mobile-dock-scroll-only', () => {
     const html = renderTopBarHtml({ currentPath: '/' });
+    const root = parseHtml(html);
+    const dock = root.querySelector('[data-entei-mobile-dock]');
+    expect(dock!.hasAttribute('data-entei-mobile-dock-scroll-only')).toBe(true);
+  });
+
+  it('Settings: dock carries data-entei-mobile-dock-scroll-only', () => {
+    const html = renderTopBarHtml({ currentPath: '/settings/' });
     const root = parseHtml(html);
     const dock = root.querySelector('[data-entei-mobile-dock]');
     expect(dock!.hasAttribute('data-entei-mobile-dock-scroll-only')).toBe(true);

@@ -119,7 +119,7 @@ const autoHidePill = !isHome;
 /** Settings page: the settings gear link carries aria-current here too, so
  *  the shared `[aria-current='page']` rules light it gold with the active
  *  background just like Home/Profile. */
-const isSettings = activePath === '/settings';
+const isSettings = activePath === '/settings' || activePath.startsWith('/settings/');
 /**
  * Leaf surfaces opened from the Immersion Tools drawer swap the mobile TopBar
  * brand + language selector for a single "← Kembali" back control: going back
@@ -149,7 +149,7 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
   ============================================================
 -->
 {
-  !isHome && (
+  !isHome && !isSettings && (
     <header class="entei-topbar-mobile" role="banner">
       <div class="entei-topbar-mobile-inner">
         {isMobileBack ? (
@@ -370,7 +370,7 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
   aria-label={dictionary.nav.mobileDockLabel}
   data-entei-mobile-dock
   data-i18n-aria-label="nav.mobileDockLabel"
-  data-entei-mobile-dock-scroll-only={isHome ? '' : undefined}
+  data-entei-mobile-dock-scroll-only={isHome || isSettings ? '' : undefined}
 >
   {
     MOBILE_DESTINATIONS.map(({ route, labelKey, Icon }) => {
