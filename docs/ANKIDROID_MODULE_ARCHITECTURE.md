@@ -15,7 +15,7 @@
 [ フロントエンド (React / TypeScript: PlayerApp / Yomitan / 設定画面) ]
                      │
                      ▼
-             tauri-bridge.ts (透過ルーティング)
+             tauri-bridge.ts (透過ルーティング: isAndroid() 判定)
                      │
                      ├─ [デスクトップ (Windows / Mac / Linux)]
                      │     └─ plugin:anki|anki_request (127.0.0.1:8765) ──► 公式 AnkiConnect
@@ -52,7 +52,7 @@
 2. **モジュール管理画面（`/settings/?group=module`）とのシームレスな統合**:
    - 将来的に `ankidroid.module.json` を配置することで、Entei Modules のモジュール棚・設定画面へも他モジュールと全く同じ規格で並べることができる（※マニフェスト化は後のフェーズで実施）。
 3. **外部 APK ＆ HTTP サーバー（ポート8765）の完全排除**:
-   - AnkiDroid 公式の `AddContentApi`（`com.github.ankidroid:Anki-Android`）を Entei Modules の Android 依存として組み込むため、スマホ内で HTTP サーバーを一切立ち上げず、OS 標準の `ContentResolver` で超高速・省電力に直結する。
+   - AnkiDroid 公式の `AddContentApi` を Entei Modules の Android 依存として組み込むため、スマホ内で HTTP サーバーを一切立ち上げず、OS 標準の `ContentResolver` で超高速・省電力に直結する。
 
 ---
 
@@ -92,7 +92,7 @@ plugins/tauri-plugin-modules/
 ```
 
 ### 2.2 Gradle 依存関係 (`plugins/tauri-plugin-modules/android/build.gradle.kts`)
-AGP 8+ 仕様に従い、`namespace` は `build.gradle.kts` で宣言する：
+AGP 8+ 仕様に従い、`namespace` は `build.gradle.kts` で宣言し、公式検証済みの `api-v1.1.0` 座標を使用する：
 
 ```kotlin
 plugins {
@@ -121,8 +121,8 @@ dependencies {
     implementation("com.google.android.material:material:1.7.0")
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("com.google.code.gson:gson:2.10.1")
-    // AnkiDroid API (公式 JitPack リポジトリ)
-    implementation("com.github.ankidroid:Anki-Android:2.17alpha14")
+    // AnkiDroid API (公式 JitPack 検証済み座標)
+    implementation("com.github.ankidroid:Anki-Android:api-v1.1.0")
 }
 ```
 
@@ -142,7 +142,7 @@ fn main() {
 }
 ```
 
-Rust 側と Kotlin 側のクラス解決が完全一致するよう、`PLUGIN_IDENTIFIER` を Kotlin のパッケージ名と同一にする：
+Rust 側と Kotlin 側のクラス解決が完全一致するよう、`ANKIDROID_IDENTIFIER` を Kotlin のパッケージ名と同一にする：
 ```rust
 // plugins/tauri-plugin-modules/src/ankidroid.rs
 #[cfg(target_os = "android")]
@@ -156,7 +156,6 @@ pub fn init_android<R: tauri::Runtime, C: serde::de::DeserializeOwned>(
     Ok(api.register_android_plugin(ANKIDROID_IDENTIFIER, "AnkiDroidModule")?)
 }
 
-// 非 Android 環境でのスタブ実装
 #[cfg(not(target_os = "android"))]
 pub fn init_android<R: tauri::Runtime, C: serde::de::DeserializeOwned>(
     _app: &tauri::AppHandle<R>,
@@ -207,6 +206,7 @@ class AnkiDroidModule(private val activity: Activity) : Plugin(activity) {
     @Command
     fun ankidroid_request(invoke: Invoke) {
         // action, version, params, key を受領してディスパッチ
+        // 成功時は { "result": any, "error": null } エンベロープで返却
     }
 
     @Command
@@ -221,11 +221,10 @@ class AnkiDroidModule(private val activity: Activity) : Plugin(activity) {
 ## 3. モジュール API エンドポイント (`plugin:modules|...`) とフロントエンド統合
 
 ### 3.1 登録される Tauri IPC コマンド
-1. **`modules_ankidroid_request(action: String, version: Option<u32>, params: Value, key: Option<String>)`**:
+1. **`modules_ankidroid_request(action: String, version: Option<u32>, params: Option<Value>, key: Option<String>)`**:
    - AnkiConnect 互換アクション（`version`, `deckNames`, `modelNames`, `addNote`, `updateNoteFields`, `storeMediaFile` 等）をディスパッチ。
-   - Android では Kotlin の `AnkiDroidModule` を `run_mobile_plugin_async` で呼び出し。
+   - Android では Kotlin の `AnkiDroidModule` を `run_mobile_plugin_async` で呼び出し、`{ "result": any, "error": null }` エンベロープとして返却。
    - 非 Android では `Err("unsupported-platform")` を返却。
-   - エラー時は `AnkiCommandError { kind: String, message: String }` を返却（フロントエンドの `AnkiExportError` と型整合）。
 2. **`modules_ankidroid_check_connection()`**:
    - フロントエンドの `isAnkiNativeConnectionStatus`（`tauri-bridge.ts:126-158`）バリデータを 100% パスするよう、**全必須キーを明示設定（null の場合も `null` を出力）** して返却：
      ```json
@@ -240,11 +239,15 @@ class AnkiDroidModule(private val activity: Activity) : Plugin(activity) {
        "errorKind": null
      }
      ```
-   - 状態 `state` は `'connected' | 'unavailable' | 'permission-denied'` を正確に返す。
+   - 状態 `state` は `'connected' | 'unavailable' | 'permission-denied' | 'api-key-required' | 'unknown-error'` の定義域に従う。
 
-### 3.2 フロントエンド透過ルーティング (`AnkiExportClient` & `tauri-bridge.ts`)
-- `AnkiExportClient.request()` において、`isTauri() && isAndroid()` の場合は直接 `fetch()` を呼ばず、`invoke('plugin:modules|modules_ankidroid_request', { action, version: 6, params, key: this.apiKey })` へシームレスに転送する。
-- これにより、`PlayerApp.tsx` の採掘フロー、`AnkiAppendPanel.tsx` の追記フロー、`MiningPreviewDialog.tsx` の全エクスポート処理が、一切のコード改変なしに Android ネイティブへ直通する。
+### 3.2 フロントエンド透過ルーティング (`tauri-bridge.ts` & クライアント層)
+1. **環境判定 `isAndroid()`**:
+   - `tauri-bridge.ts` に `export function isAndroid(): boolean` を新設（`isTauri() && /android/i.test(navigator.userAgent)`）。
+2. **クライアント側のルーティング**:
+   - `AnkiExportClient.request()` および `AnkiConnectClient.request()` において、`isAndroid()` の場合は直接 `fetch()` やデスクトップ HTTP をバイパスし、`invoke('plugin:modules|modules_ankidroid_request', { action, version: 6, params: params ?? {}, key: this.apiKey })` を呼び出す。
+   - `ankiCheckConnectionDirect()` も `isAndroid()` 時は `invoke('plugin:modules|modules_ankidroid_check_connection')` へ短絡。
+   - これにより、`PlayerApp.tsx` の採掘フロー、`AnkiAppendPanel.tsx` の追記フロー、`MiningPreviewDialog.tsx` の全エクスポート処理、設定画面の接続チェックが、一切のコード改変なしに Android ネイティブへ直通する。
 
 ---
 
@@ -261,7 +264,8 @@ class AnkiDroidModule(private val activity: Activity) : Plugin(activity) {
 - **`modelNames()`**: `api.getModelList(0)?.values?.toTypedArray() ?: emptyArray()`（引数 `0` で全件取得）。
 - **`modelNamesAndIds()`**: `{ [modelName: string]: number }` のマップを返却。
 - **`modelFieldNames(modelName: String)`**: ノートタイプ名から内部 `modelId` を解決し、定義されているフィールド一覧（`String[]`）を正確な順序で返却。
-- **`getModelName(modelId: Long)`**: `api.getModelName(modelId) ?: "Default"`
+- **`getModelName(modelId: Long)`**:
+  - `api.modelList?.get(modelId) ?: "Default"`
 - **`getNoteModelId(noteId: Long)`**:
   - `AddContentApi.getNote()` の PROJECTION は `MID` を含まないため、以下の独立クエリで解決する：
   ```kotlin
@@ -285,7 +289,7 @@ class AnkiDroidModule(private val activity: Activity) : Plugin(activity) {
 - `modelId` と `deckId` を解決。
 - フィールドのマップ（`Map<String, String>`）をモデルのフィールド定義配列（`api.getFieldList(modelId)`）の順序に従った配列（`String[]`）へ並び替え（未指定フィールドは `""`）。
 - `tags` は `List<String>` から `Set<String>` へ変換。
-- `api.addNote(modelId, deckId, fields, tags.toSet())` を呼び出し、生成された `noteId`（`Long`）を返却。
+- `api.addNote(modelId, deckId, fields, tags.toSet()) ?: throw Exception("Failed to add note to AnkiDroid")` を呼び出し、生成された `noteId`（`Long`）を返却。
 
 #### ③ 既存カードの差分マージ更新 (`updateNoteFields`) 🚨 【重要・データ消失防止】
 AnkiDroid の `api.updateNoteFields(noteId, fields: Array<String>)` はカードの全フィールドを**完全置換**するため、必ず以下の「読み取り → 差分マージ → 全置換」を実行する：
@@ -321,7 +325,7 @@ JavaScript の `Number.MAX_SAFE_INTEGER`（`9,007,199,254,740,991` ≈ 9.0e15）
 - 最大値: `1.7e12 * 1000 + 999 ≈ 1.7e15`（`Number.MAX_SAFE_INTEGER` の安全範囲に 100% 収束し、精度落ちや誤カード休止が物理的にゼロ）。
 - `fun makeCardId(noteId: Long, cardOrd: Long): Long = noteId * 1000L + (cardOrd % 1000L)`
 - `fun parseNoteId(cardId: Long): Long = cardId / 1000L`
-- `fun parseCardOrd(cardId: Long): Long = cardId % 1000L`
+- `fun parseCardOrd(cardId: Long): Int = (cardId % 1000L).toInt()` 🚨 【重要・Intキャスト】
 
 1. **`findCards('nid:<noteId>')`**:
    - `Uri.parse("content://com.ichi2.anki.flashcards/notes/$noteId/cards")` をクエリ。
@@ -331,13 +335,14 @@ JavaScript の `Number.MAX_SAFE_INTEGER`（`9,007,199,254,740,991` ≈ 9.0e15）
    - `notes/<noteId>/cards/<ord>` をクエリし、`DECK_ID` から `DeckApi.deckList` を引いて `deckName` を解決。
    - `QUESTION`, `ANSWER`, `ModelApi.getModelName(modelId)` を取得し、`AnkiCardInfo` 配列（`cardId, deckName, modelName, question, answer`）を返却（※追記パネルの Deck 列が Android でも完璧に表示される）。
 3. **`suspend(cardIds: List<Long>)`**:
-   - 各 `cardId` を分解して `(noteId, cardOrd)` を取得。
-   - `FlashCardsContract.ReviewInfo` に対し、`NOTE_ID` と `CARD_ORD` を指定して `SUSPEND = 1`（`ReviewInfo.SUSPEND`）を単独 update。
+   - 各 `cardId` を分解して `val nid = parseNoteId(cardId)`、`val ord = parseCardOrd(cardId)`（Int型）を取得。
+   - `ContentValues` に `ReviewInfo.NOTE_ID` (Long), `ReviewInfo.CARD_ORD` (Int), `ReviewInfo.SUSPEND` (`1`, Int) を設定し、`FlashCardsContract.ReviewInfo` に対し単独 update を実行。
    - 新規カード作成後の `suspendNewCards` が Android でも確実にカードを休止する。
 4. **`notesInfo(noteIds: List<Long>)`**:
    - `AddContentApi.getNote(id)` で `FLDS` と `TAGS` を取得。
-   - `getNoteModelId(id)` から `ModelApi.getModelName(mid)` と `api.getFieldList(mid)` を引いて `{ [fieldName]: { value, order } }` のマップを構成。
-   - `notes/<id>/cards` をクエリして合成 `cardId` 配列を生成し `cards: Long[]` に格納して返却。
+   - `val mid = getNoteModelId(id) ?: 0L` から `modelName = ModelApi.getModelName(mid)` と `api.getFieldList(mid)` を引いて `{ [fieldName]: { value, order } }` のマップを構成。
+   - `notes/<id>/cards` をクエリし、先頭カードの `DECK_ID` から `deckList` を引いて `deckName` を解決。
+   - 合成 `cardId` 配列を生成し `cards: Long[]` に格納して返却（※`noteId, modelName, deckName, fields, tags, cards` の完全オブジェクト）。
 
 ### 4.5 メディアファイル連携 (`MediaApi`) 🚨 【重要・Scoped Storage 適合】
 
@@ -386,10 +391,10 @@ Entei Modules が受領し、AnkiDroid Connect モジュールへ中継するア
 | `addTags` | カード更新・追記後 | `api.updateNoteTags()` + `api.getNote().tags` の Union 合成 | `null` |
 | `storeMediaFile` | 画像・音声保存 | `MediaApi.storeMediaFile()`（FileProvider + 確定ファイル名返却） | `string` (確定ファイル名) |
 | `findNotes` | 最新カード・重複・追記 | `FlashCardsContract.Note.CONTENT_URI` へのクエリ（クエリ文字列をそのまま selection に渡し、0件・null時は `[]` を返却） | `number[]` |
-| `notesInfo` | カード情報取得 | `FlashCardsContract.Note` のクエリ（MID から `modelName` と `{ [field]: { value, order } }` を構成、合成 `cardId` 配列を付与） | `AnkiNoteInfo[]` |
+| `notesInfo` | カード情報取得 | `FlashCardsContract.Note` のクエリ（`noteId, modelName, deckName, fields, tags, cards` を構成） | `AnkiNoteInfo[]` |
 | `cardsInfo` | 追記時のデッキ名解決 | 合成 `cardId` を分解し、`notes/<nid>/cards/<ord>` をクエリして `DECK_ID` から `deckName` を解決 | `AnkiCardInfo[]` |
 | `findCards` | 新規カード休止用 | `notes/<nid>/cards` をクエリし、各カードの合成 `cardId` リストを返却 | `number[]` |
-| `suspend` | 新規カード休止 | 合成 `cardId` を分解し、`FlashCardsContract.ReviewInfo` に `NOTE_ID` + `CARD_ORD` + `SUSPEND = 1` を update | `boolean` (true) |
+| `suspend` | 新規カード休止 | 合成 `cardId` を分解し、`FlashCardsContract.ReviewInfo` に `NOTE_ID` + `CARD_ORD` (Int) + `SUSPEND = 1` (Int) を update | `boolean` (true) |
 | `apiReflect` | AnkiDroid 自動判定 | 🚨 **`{ scopes: ["actions"] }` のみを返し `actions` 配列は返さない**（フロントエンドが `Array.isArray(actions) === false` を見て確実に `ankiDroidMode = true` と判定させるため） | `{ "scopes": ["actions"] }` |
 
 ---
@@ -453,7 +458,7 @@ Entei Modules が受領し、AnkiDroid Connect モジュールへ中継するア
 
 - **フェーズ 1: Entei Modules 配下への Android モジュール新設と Gradle 統合**
   - `plugins/tauri-plugin-modules` に Android ソースセット（Kotlin）を新設
-  - `build.gradle.kts` に `Anki-Android` API、`queries`、`FileProvider` を配備
+  - `build.gradle.kts` に `Anki-Android` API (`api-v1.1.0`)、`queries`、`FileProvider` を配備
   - `build.rs` に `android_path("android")` と新コマンドを追加
   - `src/ankidroid.rs` で `register_android_plugin` と `run_mobile_plugin_async` を実装
   - `modules_ankidroid_check_connection` および `version` の接続疎通確認を開通
@@ -463,7 +468,7 @@ Entei Modules が受領し、AnkiDroid Connect モジュールへ中継するア
   - `MediaApi`（FileProvider + `FILE_URI` + 拡張子除去 + 確定ファイル名返却）
   - `addTags`（Union 更新）と `apiReflect`（`actions` 非配列返却）
 - **フェーズ 3: エクスポートフローの結合確認**
-  - `AnkiExportClient` の Android 透過ルーティング配線
+  - `AnkiExportClient` および `AnkiConnectClient` の Android 透過ルーティング配線
   - `PlayerApp.tsx` からの動画スクショ・セリフ音声の AnkiDroid 登録検証
   - Yomitan モジュールからのカード追加検証
 - **フェーズ 4: アプリオンボーディング画面の実装（後日別タスク）**
