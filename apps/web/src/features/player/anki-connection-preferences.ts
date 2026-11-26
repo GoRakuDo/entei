@@ -122,7 +122,7 @@ const DEFAULT_DENCHOU_FIELDS: Record<string, string> = {
   wordAudio: '{audio}',
   sentenceAudio: '{sentence-audio}',
   selectionText: '{popup-selection-text}',
-  definition: '{glossary}',
+  definition: '',
   glossary: '{glossary}',
   pitchAccents: '{pitch-accents}',
   pitchPositions: '{pitch-accent-positions}',
@@ -135,21 +135,23 @@ const DEFAULT_DENCHOU_FIELDS: Record<string, string> = {
 };
 
 /**
- * Current DenChou `fields` schema version. 1 (or absent) is the pre-player
- * schema where an empty `sentenceAudio` still meant "legacy default"; 2 is
- * written once the player marker has been applied, from then on an empty
- * value is a deliberate user choice.
+ * Current DenChou `fields` schema version.
+ * - v1: absent / pre-player schema (sentenceAudio was empty string by legacy default).
+ * - v2: media markers ({screenshot}, {sentence-audio}) introduced.
+ * - v3: definition duplicate {glossary} cleared once to empty string (glossary is the real field).
  */
-const DENCHOU_FIELDS_VERSION = 2;
+const DENCHOU_FIELDS_VERSION = 3;
+const DENCHOU_MEDIA_FIELDS_VERSION = 2;
 
 /**
- * Legacy DenChou defaults replaced by player-captured media.
+ * Legacy DenChou defaults replaced by player-captured media or schema cleanups.
  *
  * `picture` is upgraded only when it still holds the exact legacy literal
  * `{clipboard-image}`, so an intentionally emptied field is never refilled.
  * `sentenceAudio` cannot be told apart from "never set" by value alone (both
- * are `''`), so it is upgraded once per profile and then stamped with
- * `fieldsVersion: 2`.
+ * are `''`), so it is upgraded once per profile below version 2.
+ * `definition` duplicated `{glossary}` in v1/v2; upgraded once below version 3
+ * so deliberate user assignments are preserved thereafter.
  *
  * Pure: the incoming map is never mutated.
  */
@@ -161,8 +163,11 @@ function upgradeDenchouFields(
   if (next.picture === '{clipboard-image}') {
     next.picture = DEFAULT_DENCHOU_FIELDS.picture!;
   }
-  if (fieldsVersion < DENCHOU_FIELDS_VERSION && next.sentenceAudio === '') {
+  if (fieldsVersion < DENCHOU_MEDIA_FIELDS_VERSION && next.sentenceAudio === '') {
     next.sentenceAudio = DEFAULT_DENCHOU_FIELDS.sentenceAudio!;
+  }
+  if (fieldsVersion < DENCHOU_FIELDS_VERSION && next.definition === '{glossary}') {
+    next.definition = '';
   }
   return next;
 }

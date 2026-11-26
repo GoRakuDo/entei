@@ -135,6 +135,8 @@ describe('readAnkiConnectionPreferences', () => {
     expect(denchouProfile?.fields.picture).toBe('{screenshot}');
     expect(denchouProfile?.fields.sentenceAudio).toBe('{sentence-audio}');
     expect(denchouProfile?.fields.wordAudio).toBe('{audio}');
+    expect(denchouProfile?.fields.definition).toBe('');
+    expect(denchouProfile?.fields.glossary).toBe('{glossary}');
   });
 
   it('upgrades legacy DenChou values but keeps user-edited values verbatim', () => {
@@ -165,11 +167,12 @@ describe('readAnkiConnectionPreferences', () => {
             icon: 'small-circle',
             deck: 'Default',
             model: 'DenChou',
-            // v2 profile whose media fields the user replaced by hand.
-            fieldsVersion: 2,
+            // v3 profile whose media fields the user replaced by hand.
+            fieldsVersion: 3,
             fields: {
               picture: '<img src="{screenshot}">',
               sentenceAudio: '{audio}',
+              definition: '{glossary}',
             },
           },
         ],
@@ -178,12 +181,14 @@ describe('readAnkiConnectionPreferences', () => {
     const [legacy, edited] = readAnkiConnectionPreferences().cardFormats.slice(1);
     expect(legacy?.fields.picture).toBe('{screenshot}');
     expect(legacy?.fields.sentenceAudio).toBe('{sentence-audio}');
+    expect(legacy?.fields.definition).toBe('');
     // Upgraded exactly once: the profile is stamped with the current version.
-    expect(legacy?.fieldsVersion).toBe(2);
-    expect(edited?.fieldsVersion).toBe(2);
+    expect(legacy?.fieldsVersion).toBe(3);
+    expect(edited?.fieldsVersion).toBe(3);
     // User-edited values are never rewritten to the default.
     expect(edited?.fields.picture).toBe('<img src="{screenshot}">');
     expect(edited?.fields.sentenceAudio).toBe('{audio}');
+    expect(edited?.fields.definition).toBe('{glossary}');
   });
 
   it('keeps user-cleared DenChou picture/sentenceAudio empty on later reads', () => {
@@ -209,7 +214,7 @@ describe('readAnkiConnectionPreferences', () => {
     );
     const upgraded = readAnkiConnectionPreferences();
     expect(upgraded.cardFormats[1]?.fields.sentenceAudio).toBe('{sentence-audio}');
-    expect(upgraded.cardFormats[1]?.fieldsVersion).toBe(2);
+    expect(upgraded.cardFormats[1]?.fieldsVersion).toBe(3);
 
     // The user then deliberately clears both media fields.
     writeAnkiConnectionPreferences({
@@ -227,7 +232,37 @@ describe('readAnkiConnectionPreferences', () => {
     const reloaded = readAnkiConnectionPreferences().cardFormats[1];
     expect(reloaded?.fields.picture).toBe('');
     expect(reloaded?.fields.sentenceAudio).toBe('');
-    expect(reloaded?.fieldsVersion).toBe(2);
+    expect(reloaded?.fieldsVersion).toBe(3);
+  });
+
+  it('clears legacy duplicate definition {glossary} once and stamps fieldsVersion 3', () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...DEFAULT_ANKI_CONNECTION_PREFERENCES,
+        cardFormats: [
+          DEFAULT_ANKI_CONNECTION_PREFERENCES.cardFormats[0],
+          {
+            id: 'denchou',
+            name: 'DenChou',
+            type: 'term',
+            icon: 'small-circle',
+            deck: 'Mining',
+            model: 'DenChou',
+            fieldsVersion: 2,
+            fields: {
+              word: '{expression}',
+              definition: '{glossary}',
+              glossary: '{glossary}',
+            },
+          },
+        ],
+      }),
+    );
+    const read = readAnkiConnectionPreferences().cardFormats[1];
+    expect(read?.fields.definition).toBe('');
+    expect(read?.fields.glossary).toBe('{glossary}');
+    expect(read?.fieldsVersion).toBe(3);
   });
 
   it('fills a legacy 4-field DenChou profile up to the full 23-field map', () => {
@@ -264,7 +299,8 @@ describe('readAnkiConnectionPreferences', () => {
     // ...while missing fields gain their defaults.
     expect(denchou?.fields.picture).toBe('{screenshot}');
     expect(denchou?.fields.sentenceAudio).toBe('{sentence-audio}');
-    expect(denchou?.fields.definition).toBe('{glossary}');
+    expect(denchou?.fields.definition).toBe('');
+    expect(denchou?.fields.glossary).toBe('{glossary}');
     expect(denchou?.fields.freqSort).toBe('{frequency-harmonic-rank}');
     expect(denchou?.fields.miscInfo).toBe('{document-title}');
     expect(denchou?.fields['Note ID']).toBe('');

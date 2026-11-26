@@ -680,7 +680,7 @@ function ProfileFieldTable({
               value={format.fields[field] ?? ''}
               onChange={(next) => onFieldChange(field, next)}
               markers={markers}
-              placeholder={wrapMarker(markers[0] ?? 'expression')}
+              placeholder=""
               ariaLabel={`${field} ${dict.valueColumnHeader}`}
             />
           </div>
