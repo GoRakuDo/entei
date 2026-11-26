@@ -244,9 +244,10 @@ class AnkiDroidModule(private val activity: Activity) : Plugin(activity) {
 ### 3.2 フロントエンド透過ルーティング (`tauri-bridge.ts` & クライアント層)
 1. **環境判定 `isAndroid()`**:
    - `tauri-bridge.ts` に `export function isAndroid(): boolean` を新設（`isTauri() && /android/i.test(navigator.userAgent)`）。
-2. **クライアント側のルーティング**:
-   - `AnkiExportClient.request()` および `AnkiConnectClient.request()` において、`isAndroid()` の場合は直接 `fetch()` やデスクトップ HTTP をバイパスし、`invoke('plugin:modules|modules_ankidroid_request', { action, version: 6, params: params ?? {}, key: this.apiKey })` を呼び出す。
-   - `ankiCheckConnectionDirect()` も `isAndroid()` 時は `invoke('plugin:modules|modules_ankidroid_check_connection')` へ短絡。
+2. **クライアント側のルーティング順序（最優先評価）**:
+   - Android WebView 内でも `isTauri() === true` となるため、**`isAndroid()` の判定は既存の `if (isTauri())` 分岐よりも「前（先頭）」で最優先評価する**。
+   - `AnkiConnectClient.request()` および `AnkiExportClient.request()` において、`isAndroid()` の時は既存のデスクトップ用 `plugin:anki|anki_request` や `fetch()` を一切呼ばず、`invoke('plugin:modules|modules_ankidroid_request', { action, version: 6, params: params ?? {}, key: this.apiKey })` を呼び出す（`raceWithAbort(..., signal)` も維持しキャンセル安全性を担保）。
+   - `ankiCheckConnectionDirect()` も `isAndroid()` 時は既存の `plugin:anki` ではなく `invoke('plugin:modules|modules_ankidroid_check_connection')` へ短絡。
    - これにより、`PlayerApp.tsx` の採掘フロー、`AnkiAppendPanel.tsx` の追記フロー、`MiningPreviewDialog.tsx` の全エクスポート処理、設定画面の接続チェックが、一切のコード改変なしに Android ネイティブへ直通する。
 
 ---
