@@ -13,7 +13,11 @@
 //! - `yomitan` (`yomitan_*`)
 //! - `torrent` (`add_torrent`, `get_torrent_status`, `select_torrent_files`, `inspect_torrent_tracks`, `cancel_torrent`)
 //! - `ytdlp` (`get_video_info`, `stream_youtube`)
+//! - `ankidroid` (`modules_ankidroid_request`, `modules_ankidroid_check_connection`) —
+//!   Android-only transport to AnkiDroid's ContentProvider; the desktop build
+//!   answers "only available on Android" and keeps using `tauri-plugin-anki`
 
+pub mod ankidroid;
 pub mod clipboard;
 pub mod fetch;
 pub mod jimaku;
@@ -498,9 +502,20 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             torrent::inspect_torrent_tracks,
             torrent::cancel_torrent,
             ytdlp::get_video_info,
-            ytdlp::stream_youtube
+            ytdlp::stream_youtube,
+            ankidroid::modules_ankidroid_request,
+            ankidroid::modules_ankidroid_check_connection
         ])
         .setup(|app, _api| {
+            #[cfg(target_os = "android")]
+            {
+                // The Kotlin AnkiDroid module is instantiated here and only
+                // here: the handle is the only way its commands reach it, so a
+                // failed registration fails plugin setup instead of leaving
+                // them answering into a void.
+                let handle = ankidroid::init_android(app, &_api)?;
+                app.manage(ankidroid::AnkiDroidHandle(handle));
+            }
             let path = resolve_dictionary_db_path(app)?;
             app.manage(YomitanDbState::open(&path)?);
             ytdlp::setup(app);

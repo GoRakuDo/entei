@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-modules-ankidroid-request"
+description = "Enables the modules_ankidroid_request command without any pre-configured scope."
+commands.allow = ["modules_ankidroid_request"]
+
+[[permission]]
+identifier = "deny-modules-ankidroid-request"
+description = "Denies the modules_ankidroid_request command without any pre-configured scope."
+commands.deny = ["modules_ankidroid_request"]

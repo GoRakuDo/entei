@@ -1,0 +1,26 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 1. AnkiDroid database read/write, granted by the AnkiDroid app itself. -->
+    <uses-permission android:name="com.ichi2.anki.permission.READ_WRITE_DATABASE" />
+
+    <!-- 2. Android 11+ package visibility. Without this, resolveContentProvider
+         returns null for com.ichi2.anki.flashcards and an installed AnkiDroid
+         looks uninstalled. -->
+    <queries>
+        <package android:name="com.ichi2.anki" />
+    </queries>
+
+    <application>
+        <!-- 3. Media handoff to AnkiDroid: scoped storage means the app's cache
+             file has to travel as a content:// URI with a read grant. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.anki.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/anki_file_provider_paths" />
+        </provider>
+    </application>
+</manifest>

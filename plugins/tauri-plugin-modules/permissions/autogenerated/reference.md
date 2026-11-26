@@ -1,6 +1,6 @@
 ## Default Permission
 
-Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshiko, and Yomitan.
+Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshiko, Yomitan, and the Android AnkiDroid transport.
 
 #### This default permission set includes the following:
 
@@ -34,6 +34,8 @@ Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshik
 - `allow-cancel-torrent`
 - `allow-get-video-info`
 - `allow-stream-youtube`
+- `allow-modules-ankidroid-request`
+- `allow-modules-ankidroid-check-connection`
 
 ## Permission Table
 
@@ -170,6 +172,58 @@ Enables the inspect_torrent_tracks command without any pre-configured scope.
 <td>
 
 Denies the inspect_torrent_tracks command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:allow-modules-ankidroid-check-connection`
+
+</td>
+<td>
+
+Enables the modules_ankidroid_check_connection command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-modules-ankidroid-check-connection`
+
+</td>
+<td>
+
+Denies the modules_ankidroid_check_connection command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:allow-modules-ankidroid-request`
+
+</td>
+<td>
+
+Enables the modules_ankidroid_request command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-modules-ankidroid-request`
+
+</td>
+<td>
+
+Denies the modules_ankidroid_request command without any pre-configured scope.
 
 </td>
 </tr>

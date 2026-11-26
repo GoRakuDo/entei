@@ -29,8 +29,16 @@ const COMMANDS: &[&str] = &[
     "cancel_torrent",
     "get_video_info",
     "stream_youtube",
+    "modules_ankidroid_request",
+    "modules_ankidroid_check_connection",
 ];
 
 fn main() {
-    tauri_plugin::Builder::new(COMMANDS).build();
+    tauri_plugin::Builder::new(COMMANDS)
+        // Android source set (`android/`, a Gradle library module): the Kotlin
+        // side of the AnkiDroid module. Tauri points the app's Android project
+        // at it, so registering the plugin and the Gradle module stay one
+        // declaration.
+        .android_path("android")
+        .build();
 }

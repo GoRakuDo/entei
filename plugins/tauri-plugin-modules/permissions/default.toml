@@ -1,7 +1,7 @@
 "$schema" = "schemas/schema.json"
 
 [default]
-description = """Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshiko, and Yomitan."""
+description = """Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshiko, Yomitan, and the Android AnkiDroid transport."""
 permissions = [
   "allow-modules-jimaku-search-entries",
   "allow-modules-jimaku-search-entries-combined",
@@ -33,4 +33,6 @@ permissions = [
   "allow-cancel-torrent",
   "allow-get-video-info",
   "allow-stream-youtube",
+  "allow-modules-ankidroid-request",
+  "allow-modules-ankidroid-check-connection",
 ]
