@@ -94,7 +94,7 @@
    * track, and react-remove-scroll's own margin/padding compensation is zeroed
    * (the scrollbar it assumes it removed is still there). */
   html {
-    scrollbar-gutter: stable;
+    scrollbar-gutter: auto;
     overflow-y: scroll !important;
   }
 

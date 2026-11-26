@@ -45,7 +45,7 @@
    * react-style-singleton appends to <head> at runtime (verified in Chrome).
    */
   html {
-    scrollbar-gutter: stable;
+    scrollbar-gutter: auto;
     overflow-y: scroll !important;
   }
 
