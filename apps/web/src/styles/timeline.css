@@ -546,6 +546,14 @@
     color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
+@media (max-width: 380px) {
+  /* Narrow mobile viewports (e.g. 360dp devices): slim the action pills slightly
+     so the three actions fit within the remaining column without overflowing. */
+  .entei-timeline-action {
+    padding-inline: var(--entei-space-8);
+  }
+}
+
 .entei-timeline-action:hover {
   background-color: var(--entei-btn-color);
   color: var(--entei-text);
@@ -714,11 +722,16 @@
   }
 
   /* The page's TopBar owns the top edge on desktop, so the thread header only
-     needs its own 8px breathing room instead of the mobile top-bar height. */
+     needs its own 8px breathing room instead of the mobile top-bar height.
+     Backdrop blur + gradient mask prevents thread content from showing through
+     the header while scrolling. */
   .entei-timeline-detail-head {
     z-index: var(--entei-z-content);
     min-height: 0;
     padding-block: var(--entei-space-8);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    background: linear-gradient(to bottom, var(--entei-bg) 60%, transparent);
   }
 
   /* Bare icon button: the wallpaper shows through and the hover fill is the

@@ -107,7 +107,7 @@ const REFRESH_SETTLE_MS = 600;
  */
 export const NEW_POSTS_POLL_INTERVAL_MS = 30_000;
 
-/** Matches the `max-width: 767px` breakpoint in `styles/timeline.css`. */
+/** Matches the `(min-width: 768px)` desktop breakpoint in `styles/timeline.css`. */
 const DESKTOP_MEDIA_QUERY = '(min-width: 768px)';
 
 /**
