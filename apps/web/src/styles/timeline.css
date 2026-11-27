@@ -33,7 +33,7 @@
   /* The two tracks shared by every row below. Declared once here so the avatar
      column can never drift between composer, feed and thread. */
   --entei-timeline-avatar-column: var(--entei-touch-min);
-  --entei-timeline-row-gap: var(--entei-space-16);
+  --entei-timeline-row-gap: var(--entei-space-12);
 
   grid-column: 1 / -1;
   width: 100%;
@@ -81,9 +81,9 @@
 /* ===== COMPOSER ===== */
 
 .entei-timeline-composer {
-  /* Symmetric 16px above/below owns the breathing room that used to sit on the
+  /* Symmetric 24px above/below owns the breathing room that used to sit on the
      root, so the divider keeps an even gap on both sides. */
-  padding-block: var(--entei-space-16);
+  padding-block: var(--entei-space-24);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 
@@ -411,17 +411,8 @@
 .entei-timeline-post {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-8);
-  /* Rule #1804: never pad below --entei-space-8. The vertical rhythm is 8px
-     here + 8px inside the surface below, so the highlight never looks glued
-     to the neighbouring card. */
-  padding-block: var(--entei-space-8);
-  /* Rule #2471: no negative-margin hacks. The card stays inside the reading
-     column so its left/right edges align flush with the composer's InputGroup
-     above, and the hover band covers the whole card (head, body and the
-     action row) without spilling past the column on either side. */
+  padding-block: var(--entei-space-12);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
-  border-radius: var(--entei-radius-lg);
   /* The whole card opens the thread, including the padding and the action row
      gutter. Action pills stop propagation so Like/Share stay independent. */
   cursor: pointer;
@@ -439,7 +430,7 @@
    the shared grid and make the page jump when a post opens. */
 .entei-timeline-post-open {
   align-items: start;
-  padding-block: var(--entei-space-8);
+  padding-block: var(--entei-space-12);
   cursor: pointer;
 }
 
@@ -460,7 +451,7 @@
 .entei-timeline-detail-main {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-8);
+  gap: var(--entei-space-12);
   min-width: 0;
 }
 
