@@ -565,6 +565,48 @@ svg {
   }
 }
 
+/* ==========================================================================
+ * GLOBAL MOBILE HOVER SUPPRESSION (<768px or hover: none)
+ * --------------------------------------------------------------------------
+ * Touch interactions leave a persistent "sticky" :hover state on touched
+ * elements. On mobile and touch screens, hover effects are completely
+ * disabled so buttons and controls never stay highlighted/discolored after a tap.
+ * Desktop (>=768px and hover: hover) is 100% unaffected.
+ * ========================================================================== */
+@media (max-width: 767px), (hover: none) {
+  .entei-mobile-dock-link:hover {
+    background-color: transparent !important;
+    color: var(--entei-text-secondary) !important;
+  }
+
+  .entei-mobile-dock-link[aria-current='page']:hover {
+    background-color: oklch(57.74% 0.209 273.85deg / 0.16) !important;
+    color: var(--entei-status-locked) !important;
+    border-color: oklch(100% 0 0deg / 0.12) !important;
+  }
+
+  .entei-nav-tools-trigger:hover {
+    background-color: transparent !important;
+    color: var(--entei-text-secondary) !important;
+  }
+
+  .entei-nav-tools-trigger[data-active='true']:hover {
+    background-color: oklch(57.74% 0.209 273.85deg / 0.16) !important;
+    color: var(--entei-status-locked) !important;
+    border-color: oklch(100% 0 0deg / 0.12) !important;
+  }
+
+  .entei-nav-settings-trigger:hover {
+    background-color: transparent !important;
+  }
+
+  .entei-settings-back:hover {
+    background-color: var(--entei-surface) !important;
+    color: var(--entei-text-secondary) !important;
+    border-color: oklch(100% 0 0deg / 0.08) !important;
+  }
+}
+
 /* ===== DESKTOP LANGUAGE COMBOBOX (NAVIGATION_BAR.md §3) =====
  * Scoped to .entei-language-combobox to avoid leakage.
  * Uses Entei OKLCH tokens only — no raw hex/rgb/hsl. */

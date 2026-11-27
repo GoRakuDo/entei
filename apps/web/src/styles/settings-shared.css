@@ -290,10 +290,6 @@
   flex-shrink: 0;
 }
 
-.entei-mobile-dock .entei-nav-settings-trigger:hover {
-  background-color: var(--entei-btn-color);
-}
-
 .entei-mobile-dock .entei-nav-settings-trigger:focus-visible {
   color: var(--entei-text);
   background-color: var(--entei-btn-color);

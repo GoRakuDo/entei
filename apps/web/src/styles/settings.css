@@ -1679,19 +1679,11 @@ body[data-page='settings'] .entei-main {
   height: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
   padding: 0;
-  background-color: var(--entei-btn-color);
-  border: none;
-  border-radius: var(--entei-radius-lg);
-  color: var(--entei-status-locked);
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-card);
+  color: var(--entei-text-secondary);
   cursor: pointer;
-  transition:
-    background-color var(--entei-duration-fast) var(--entei-ease-productive),
-    color var(--entei-duration-fast) var(--entei-ease-productive);
-}
-
-.entei-settings-back:hover {
-  background-color: var(--entei-accent-hover);
-  color: var(--entei-status-locked);
 }
 
 .entei-settings-back:focus-visible {
@@ -1700,8 +1692,8 @@ body[data-page='settings'] .entei-main {
 }
 
 .entei-settings-back-icon {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1.125rem;
+  height: 1.125rem;
 }
 
 /* ==========================================================================

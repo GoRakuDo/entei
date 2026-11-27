@@ -85,11 +85,6 @@
   display: none;
 }
 
-.entei-mobile-dock .entei-nav-tools-trigger:hover {
-  color: var(--entei-text);
-  background-color: var(--entei-surface-2);
-}
-
 .entei-mobile-dock .entei-nav-tools-trigger:focus-visible {
   outline: 3px solid var(--entei-focus-ring);
   outline-offset: 2px;
