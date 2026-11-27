@@ -652,7 +652,7 @@ export const ja: Dictionary = {
     showNewPosts: '新しいポストを{count}件表示',
     back: '戻る',
     backAriaLabel: 'タイムラインに戻る',
-    postTitle: 'ポスト',
+    postTitle: 'コメント',
     replyPlaceholder: '返信をポストする',
     replySubmit: '返信',
     replySubmitAriaLabel: '返信をポスト',

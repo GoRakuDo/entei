@@ -153,14 +153,22 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
     <header class="entei-topbar-mobile" role="banner">
       <div class="entei-topbar-mobile-inner">
         {isMobileBack ? (
-          <a
-            class="entei-mobile-back"
-            href="/"
-            aria-label={dictionary.modulesPage.back}
-          >
-            <ArrowLeft class="entei-mobile-back-icon" aria-hidden="true" />
-            <span data-i18n="modulesPage.back">{dictionary.modulesPage.back}</span>
-          </a>
+          <div class="entei-topbar-mobile-back-group">
+            <a
+              class="entei-mobile-back"
+              href="/"
+              aria-label={dictionary.modulesPage.back}
+            >
+              <ArrowLeft class="entei-mobile-back-icon" aria-hidden="true" />
+            </a>
+            <span class="entei-topbar-mobile-title">
+              {isAudioPlayer
+                ? dictionary.toolsDrawer.audioTitle
+                : isVideoPlayer
+                  ? dictionary.toolsDrawer.videoTitle
+                  : dictionary.modulesPage.title}
+            </span>
+          </div>
         ) : (
           <a class="entei-wordmark" href="/">
             <HubEmblem class="entei-wordmark-emblem" />
@@ -493,28 +501,39 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
     line-height: 1;
   }
 
-  /* Mobile back control (/modules/ + /player/): replaces brand + language selector. */
+  .entei-topbar-mobile-back-group {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--entei-space-12);
+  }
+
+  .entei-topbar-mobile-title {
+    font-family: var(--entei-font-body);
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--entei-text-primary);
+    line-height: 1;
+  }
+
+  /* Mobile back control (/modules/ + /player/ + /audio-player/): unified square icon button */
   .entei-mobile-back {
     display: inline-flex;
     align-items: center;
-    gap: var(--entei-space-8);
+    justify-content: center;
+    width: var(--entei-touch-min);
+    height: var(--entei-touch-min);
     min-height: var(--entei-touch-min);
-    padding: var(--entei-space-8) 0;
-    color: var(--entei-text);
-    font-family: var(--entei-font-body);
-    font-size: 0.9375rem;
-    font-weight: 600;
-    letter-spacing: 0.01em;
+    padding: 0;
+    background-color: var(--entei-surface);
+    border: 1px solid oklch(100% 0 0deg / 0.08);
+    border-radius: var(--entei-radius-card);
+    color: var(--entei-text-secondary);
     text-decoration: none;
   }
 
-  .entei-mobile-back:hover {
-    color: var(--entei-accent-hover);
-  }
-
   .entei-mobile-back-icon {
-    width: 0.9375rem;
-    height: 0.9375rem;
+    width: 1.125rem;
+    height: 1.125rem;
   }
 
   /* ===========================================================================

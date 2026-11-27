@@ -1666,9 +1666,17 @@ body[data-page='settings'] .entei-main {
 .entei-settings-mobile-header {
   display: flex;
   align-items: center;
-  gap: var(--entei-space-8);
+  gap: var(--entei-space-12);
   min-height: var(--entei-touch-min);
   padding: 0 var(--entei-gutter);
+}
+
+.entei-settings-mobile-title {
+  font-family: var(--entei-font-body);
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--entei-text-primary);
+  line-height: 1;
 }
 
 .entei-settings-back {

@@ -760,7 +760,6 @@ export default function TimelineFeed() {
               aria-label={t.backAriaLabel}
             >
               <ArrowLeft size={18} aria-hidden="true" />
-              <span>{t.back}</span>
             </button>
             <h2 className="entei-timeline-detail-title">{t.postTitle}</h2>
           </div>

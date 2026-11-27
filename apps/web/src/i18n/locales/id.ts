@@ -654,7 +654,7 @@ export const id: Dictionary = {
     showNewPosts: 'Tampilkan {count} pos baru',
     back: 'Kembali',
     backAriaLabel: 'Kembali ke lini masa',
-    postTitle: 'Pos',
+    postTitle: 'Komentar',
     replyPlaceholder: 'Balas dengan pos',
     replySubmit: 'Balas',
     replySubmitAriaLabel: 'Kirim balasan',

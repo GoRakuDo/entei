@@ -456,6 +456,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
         >
           <ArrowLeft className="entei-settings-back-icon" aria-hidden="true" />
         </button>
+        <span className="entei-settings-mobile-title">{settings.title}</span>
       </div>
 
       {/* ------------------------------------------------------------------

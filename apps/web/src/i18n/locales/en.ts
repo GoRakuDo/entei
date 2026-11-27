@@ -655,7 +655,7 @@ export const en: Dictionary = {
     showNewPosts: 'Show {count} new posts',
     back: 'Back',
     backAriaLabel: 'Back to timeline',
-    postTitle: 'Post',
+    postTitle: 'Comment',
     replyPlaceholder: 'Post your reply',
     replySubmit: 'Reply',
     replySubmitAriaLabel: 'Post reply',

@@ -699,7 +699,8 @@
      surface top bar: full-bleed across the page gutter, topbar height and
      safe-area padding, exactly like `.entei-topbar-mobile` on /modules/. */
   .entei-timeline-detail-head {
-    gap: var(--entei-space-8);
+    gap: var(--entei-space-12);
+    align-items: center;
     z-index: var(--entei-z-topbar);
     min-height: var(--entei-topbar-height);
     margin-inline: calc(var(--entei-gutter) * -1);
@@ -708,19 +709,25 @@
     background-color: var(--entei-bg);
   }
 
-  /* Topbar back control: compact 32px pill with symmetric inline padding so
-     the icon and label sit enclosed inside the hover/focus background. */
+  /* Topbar back control: matches .entei-settings-back square card-radius icon button */
   .entei-timeline-back {
-    min-height: 2rem;
-    padding: 0 var(--entei-space-12);
-    gap: var(--entei-space-8);
-    border-radius: var(--entei-radius-pill);
-    font-size: 0.9375rem;
-    letter-spacing: 0.01em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--entei-touch-min);
+    height: var(--entei-touch-min);
+    min-height: var(--entei-touch-min);
+    padding: 0;
+    background-color: var(--entei-surface);
+    border: 1px solid oklch(100% 0 0deg / 0.08);
+    border-radius: var(--entei-radius-card);
+    color: var(--entei-text-secondary);
   }
 
   .entei-timeline-detail-title {
-    font-size: 1rem;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--entei-text-primary);
   }
 
   .entei-timeline-reply {
