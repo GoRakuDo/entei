@@ -24,6 +24,12 @@
  *     is always built from the authoritative stored name.
  * --------------------------------------------------------------------------- */
 
+import {
+  ankiRequestDirect,
+  isAndroid,
+  raceWithAbort,
+} from '@/features/player/tauri-bridge';
+
 /** Write actions — distinct from ReadAction in anki-connect.ts. */
 type WriteAction =
   | 'canAddNotes'
@@ -169,6 +175,13 @@ export class AnkiExportClient {
   ): Promise<T> {
     const body = this.buildRequest(action, params);
 
+    // Android first: there is no AnkiConnect HTTP server on a phone, so the
+    // `fetch(this.endpoint)` path below can only ever fail there. The AnkiDroid
+    // module answers the same action set in-process.
+    if (isAndroid()) {
+      return this.requestAnkidroid<T>(body, signal);
+    }
+
     let response: Response;
     try {
       response = await fetch(this.endpoint, {
@@ -235,6 +248,64 @@ export class AnkiExportClient {
     }
 
     return parsed.result as T;
+  }
+
+  /**
+   * Run one write action through the native Android AnkiDroid module.
+   *
+   * `ankiRequestDirect` already routes to the `modules` plugin's AnkiDroid
+   * module on Android and re-throws failures in the desktop plugin's
+   * `{ kind, message }` shape — the same shape `AnkiConnectClient` classifies —
+   * so the branch below is the write-side mirror of that read-side handling, not
+   * a second protocol.
+   * The abort race is kept so cancelling an export still cancels the call.
+   */
+  private async requestAnkidroid<T>(
+    body: WriteRequest,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    try {
+      return await raceWithAbort(
+        ankiRequestDirect<T>({
+          endpoint: this.endpoint,
+          action: body.action,
+          version: body.version,
+          params: body.params,
+          key: body.key,
+        }),
+        signal,
+      );
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        throw new AnkiExportError('Request aborted.', 'aborted', e);
+      }
+      const details =
+        typeof e === 'object' && e !== null
+          ? (e as Record<string, unknown>)
+          : {};
+      const message =
+        typeof details.message === 'string'
+          ? details.message
+          : typeof e === 'string'
+            ? e
+            : e instanceof Error
+              ? e.message
+              : 'The AnkiDroid request failed.';
+      const kind = details.kind;
+      throw new AnkiExportError(
+        message,
+        kind === 'network'
+          ? 'network'
+          : kind === 'api-key-required'
+            ? 'api-key-required'
+            : kind === 'permission-denied'
+              ? 'permission-denied'
+              : kind === 'invalid-response'
+                ? 'invalid-response'
+                : 'server-error',
+        e,
+      );
+    }
   }
 
   /** Check if notes can be added (no duplicates etc). */

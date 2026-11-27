@@ -650,3 +650,156 @@ describe('apiReflect', () => {
     expect(body.key).toBe('secret-key');
   });
 });
+
+/* ---------------------------------------------------------------------------
+ * Android routing — phase 3 of docs/ANKIDROID_MODULE_ARCHITECTURE.md
+ * --------------------------------------------------------------------------
+ * On Android there is no AnkiConnect HTTP server, so a write must reach the
+ * native AnkiDroid module through `plugin:modules|modules_ankidroid_request`
+ * and must never touch `fetch(this.endpoint)`. The desktop path is unchanged.
+ * ------------------------------------------------------------------------- */
+
+const ANDROID_UA =
+  'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/151.0.0.0 Mobile Safari/537.36';
+const DESKTOP_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36';
+
+interface NativeCall {
+  command: string;
+  args: Record<string, unknown> | undefined;
+}
+
+interface InternalsGlobal {
+  __TAURI_INTERNALS__?: {
+    invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+  };
+}
+
+function setUserAgent(value: string): void {
+  Object.defineProperty(navigator, 'userAgent', { value, configurable: true });
+}
+
+function installTauri(reply: unknown): NativeCall[] {
+  const calls: NativeCall[] = [];
+  (globalThis as unknown as InternalsGlobal).__TAURI_INTERNALS__ = {
+    invoke: vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      calls.push({ command, args });
+      return reply;
+    }),
+  };
+  return calls;
+}
+
+describe('AnkiExportClient Android routing', () => {
+  afterEach(() => {
+    delete (globalThis as unknown as InternalsGlobal).__TAURI_INTERNALS__;
+    delete (navigator as unknown as Record<string, unknown>).userAgent;
+    vi.restoreAllMocks();
+  });
+
+  it('sends writes to the modules AnkiDroid command instead of fetch', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch');
+    setUserAgent(ANDROID_UA);
+    const calls = installTauri({ result: 1234, error: null });
+
+    const client = new AnkiExportClient('http://127.0.0.1:8765', 'secret-key');
+    await expect(client.addNote(sampleNote)).resolves.toBe(1234);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(calls).toEqual([
+      {
+        command: 'plugin:modules|modules_ankidroid_request',
+        args: {
+          action: 'addNote',
+          version: 6,
+          params: { note: sampleNote },
+          key: 'secret-key',
+        },
+      },
+    ]);
+  });
+
+  it('unwraps a successful envelope for every write action', async () => {
+    setUserAgent(ANDROID_UA);
+    const calls = installTauri({ result: 'entei_audio_abc.webm', error: null });
+
+    const client = new AnkiExportClient();
+    await expect(client.storeMediaFile('entei_audio_abc.webm', 'AAAA')).resolves.toBe(
+      'entei_audio_abc.webm',
+    );
+    expect(calls[0]?.args).toMatchObject({
+      action: 'storeMediaFile',
+      params: { filename: 'entei_audio_abc.webm', data: 'AAAA' },
+    });
+  });
+
+  it('maps an AnkiDroid error envelope onto an AnkiExportError code', async () => {
+    setUserAgent(ANDROID_UA);
+    installTauri({
+      result: null,
+      error: 'Entei does not have permission to access AnkiDroid. Grant database access to continue.',
+    });
+
+    const client = new AnkiExportClient();
+    const error = (await client.addNote(sampleNote).catch((e: unknown) => e)) as AnkiExportError;
+    expect(error).toBeInstanceOf(AnkiExportError);
+    expect(error.code).toBe('permission-denied');
+    expect(error.message).toContain('permission');
+  });
+
+  it('reports a missing AnkiDroid as a network failure', async () => {
+    setUserAgent(ANDROID_UA);
+    installTauri({
+      result: null,
+      error: 'AnkiDroid is not installed. Install AnkiDroid to export cards on Android.',
+    });
+
+    const client = new AnkiExportClient();
+    const error = (await client.addNote(sampleNote).catch((e: unknown) => e)) as AnkiExportError;
+    expect(error.code).toBe('network');
+  });
+
+  it('keeps the native reason when the IPC rejects with a bare string', async () => {
+    setUserAgent(ANDROID_UA);
+    (globalThis as unknown as InternalsGlobal).__TAURI_INTERNALS__ = {
+      invoke: vi.fn((_command: string, _args?: Record<string, unknown>) =>
+        Promise.reject('AnkiDroid worker is shutting down. Retry the request.'),
+      ),
+    };
+
+    const client = new AnkiExportClient();
+    const error = (await client.addNote(sampleNote).catch((e: unknown) => e)) as AnkiExportError;
+    expect(error).toBeInstanceOf(AnkiExportError);
+    expect(error.message).toBe('AnkiDroid worker is shutting down. Retry the request.');
+  });
+
+  it('keeps the abort contract on the native path', async () => {
+    setUserAgent(ANDROID_UA);
+    installTauri({ result: 1, error: null });
+
+    const controller = new AbortController();
+    controller.abort();
+    const client = new AnkiExportClient();
+    const error = (
+      await client.addNote(sampleNote, controller.signal).catch((e: unknown) => e)
+    ) as AnkiExportError;
+    expect(error).toBeInstanceOf(AnkiExportError);
+    expect(error.code).toBe('aborted');
+  });
+
+  it('still uses fetch on a desktop Tauri webview', async () => {
+    const fetchSpy = vi
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(mockFetchResponse(1234));
+    setUserAgent(DESKTOP_UA);
+    const calls = installTauri({ result: null, error: null });
+
+    const client = new AnkiExportClient('http://127.0.0.1:8765', 'secret-key');
+    await expect(client.addNote(sampleNote)).resolves.toBe(1234);
+
+    expect(calls).toHaveLength(0);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchSpy.mock.calls[0]![1]!.body as string);
+    expect(body.action).toBe('addNote');
+  });
+});

@@ -70,6 +70,27 @@ export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
+/**
+ * True when the Tauri webview is the Android one.
+ *
+ * Android is ALSO Tauri — `__TAURI_INTERNALS__` is injected there exactly as on
+ * the desktop — so every Android branch has to be decided BEFORE `isTauri()`.
+ * The distinction matters for Anki: the desktop plugin speaks HTTP to
+ * `127.0.0.1:8765`, and there is no AnkiConnect server on a phone. Android
+ * answers through the `modules` plugin's AnkiDroid module instead, which talks
+ * to the AnkiDroid ContentProvider in-process.
+ *
+ * The user agent is the only signal that separates the two, because Tauri v2
+ * injects no platform field into the page.
+ */
+export function isAndroid(): boolean {
+  return (
+    isTauri() &&
+    typeof navigator !== 'undefined' &&
+    /android/i.test(navigator.userAgent)
+  );
+}
+
 /** AnkiConnect error kinds returned by `tauri-plugin-anki`. */
 export type AnkiNativeErrorKind =
   | 'network'
@@ -97,7 +118,15 @@ export interface AnkiNativeConnectionStatus {
   errorKind: AnkiNativeErrorKind | null;
 }
 
-/** Invoke one AnkiConnect action through the desktop plugin. */
+/**
+ * Invoke one AnkiConnect action on the platform's native route.
+ *
+ * Android is tested FIRST: it is a Tauri runtime too, so reaching the desktop
+ * plugin there would post to `127.0.0.1:8765`, where nothing listens. The
+ * AnkiDroid module answers the same action set, and this wrapper flattens its
+ * reply into the same shape the desktop plugin returns (see
+ * [`unwrapAnkidroidReply`]), so callers never branch on the platform.
+ */
 export function ankiRequestDirect<T = unknown>(args: {
   endpoint?: string;
   action: string;
@@ -105,7 +134,74 @@ export function ankiRequestDirect<T = unknown>(args: {
   params?: Record<string, unknown>;
   key?: string;
 }): Promise<T> {
+  if (isAndroid()) {
+    return invokePluginCommand<unknown>(
+      'plugin:modules|modules_ankidroid_request',
+      {
+        action: args.action,
+        version: args.version ?? 6,
+        params: args.params ?? {},
+        key: args.key,
+      },
+    ).then((raw) => unwrapAnkidroidReply<T>(raw));
+  }
   return invokePluginCommand<T>('plugin:anki|anki_request', args);
+}
+
+/**
+ * Unwrap the AnkiDroid module's `{ result, error }` envelope.
+ *
+ * The desktop plugin unwraps it in Rust and rejects with `{ kind, message }`;
+ * `modules_ankidroid_request` returns the Kotlin envelope verbatim (the module
+ * answers failures inside it), so the unwrap happens here and the Anki clients
+ * above see ONE shape whichever platform they run on. A failure is re-thrown as
+ * an `Error` carrying `kind`, which is the field those clients classify on.
+ */
+function unwrapAnkidroidReply<T>(raw: unknown): T {
+  if (
+    typeof raw !== 'object' ||
+    raw === null ||
+    !('result' in raw) ||
+    !('error' in raw)
+  ) {
+    throw Object.assign(new Error('invalid AnkiDroid reply envelope'), {
+      kind: 'invalid-response' satisfies AnkiNativeErrorKind,
+    });
+  }
+  const { result, error } = raw as { result: unknown; error: unknown };
+  if (error !== null && error !== undefined) {
+    const message = String(error);
+    throw Object.assign(new Error(message), {
+      kind: classifyAnkidroidError(message),
+    });
+  }
+  return result as T;
+}
+
+/**
+ * Classify an AnkiDroid failure message into the desktop plugin's error kinds.
+ *
+ * The Kotlin side answers plain messages (it has no error taxonomy), and these
+ * are the ones that carry a decision for the caller: a missing/old AnkiDroid or
+ * a Kotlin worker that is still restarting (`shutting down`) is `network` (the
+ * same class the desktop plugin uses for "nothing is listening"), a refused
+ * database permission and a missing API key keep their own kinds, and
+ * everything else is a provider-side `server-error`.
+ */
+function classifyAnkidroidError(message: string): AnkiNativeErrorKind {
+  const lower = message.toLowerCase();
+  if (
+    lower.includes('not installed') ||
+    lower.includes('too old') ||
+    lower.includes('shutting down')
+  ) {
+    return 'network';
+  }
+  if (lower.includes('permission')) return 'permission-denied';
+  if (lower.includes('api key') || lower.includes('authentication')) {
+    return 'api-key-required';
+  }
+  return 'server-error';
 }
 
 /** Run the native version / permission / deck / model connection flow. */
@@ -113,10 +209,18 @@ export async function ankiCheckConnectionDirect(
   endpoint?: string,
   key?: string,
 ): Promise<AnkiNativeConnectionStatus> {
-  const raw = await invokePluginCommand<unknown>(
-    'plugin:anki|anki_check_connection',
-    { endpoint, key },
-  );
+  // Android has no HTTP endpoint to probe: the AnkiDroid module does the same
+  // version / permission / deck / model flow against the ContentProvider and
+  // answers the identical status shape.
+  const raw = isAndroid()
+    ? await invokePluginCommand<unknown>(
+        'plugin:modules|modules_ankidroid_check_connection',
+        {},
+      )
+    : await invokePluginCommand<unknown>('plugin:anki|anki_check_connection', {
+        endpoint,
+        key,
+      });
   if (!isAnkiNativeConnectionStatus(raw)) {
     throw new Error('invalid Anki connection status reply');
   }
