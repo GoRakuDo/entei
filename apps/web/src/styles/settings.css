@@ -1749,6 +1749,12 @@ body[data-page='settings'] .entei-main {
     padding: var(--entei-space-16) var(--entei-gutter)
       calc(var(--entei-space-32) + var(--entei-dock-height));
   }
+
+  .entei-settings-section-card--language .entei-language-combobox,
+  .entei-settings-section-card--language .entei-combobox-trigger {
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 /* ==========================================================================
