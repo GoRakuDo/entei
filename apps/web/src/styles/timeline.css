@@ -713,14 +713,6 @@
  * the thread header sheds the mobile cards so it reads as a light icon + label
  * row pinned to the reading column. The grid itself never changes. */
 @media (min-width: 768px) {
-  /* Left-align the reading column: index.astro pads #entei-main to clear the
-     fixed sidebar, so the column starts right next to it. Dropping the
-     second margin-inline centering removes the awkward dead space that made
-     the timeline float at a half-position between sidebar and right edge. */
-  .entei-timeline-root {
-    margin-inline: 0;
-  }
-
   .entei-timeline-post-actions {
     gap: var(--entei-space-8);
   }

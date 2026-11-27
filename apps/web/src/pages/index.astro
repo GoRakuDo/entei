@@ -44,24 +44,14 @@ import '@styles/timeline.css';
   }
 
   /*
-   * X-style two-column layout: clear the centered 72rem shell and left-align a
-   * single 42rem reading column right next to the fixed sidebar. On desktop the
-   * shell stops centering (justify-content: flex-start, margin-inline: 0) and
-   * #entei-main reserves the sidebar width plus a two-gutter gap, so the
-   * timeline starts flush against the sidebar's right edge instead of floating
-   * mid-screen between two large dead margins.
+   * Keep the 42rem reading column centered in the available viewport.
+   * On wide screens, keeping margin-inline: auto centers the feed naturally,
+   * while the fixed sidebar sits comfortably in the left gutter without cramping.
    */
   @media (min-width: 768px) {
-    :global(#entei-main) {
-      padding-left: calc(var(--entei-sidebar-width) + var(--entei-gutter) * 2);
-      justify-content: flex-start;
-    }
-
     :global(#entei-main .entei-main-inner) {
-      margin-inline: 0;
       max-width: 42rem;
       width: 100%;
-      padding-inline: 0;
     }
   }
 </style>
