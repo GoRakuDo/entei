@@ -704,8 +704,7 @@
     z-index: var(--entei-z-topbar);
     min-height: var(--entei-topbar-height);
     margin-inline: 0;
-    margin-block-start: calc(var(--entei-safe-top) + var(--entei-space-8));
-    margin-block-end: var(--entei-space-16);
+    margin-block: var(--entei-space-16);
     padding: 0;
     background: transparent;
     background-color: transparent;
