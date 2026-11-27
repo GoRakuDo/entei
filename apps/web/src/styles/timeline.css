@@ -536,7 +536,7 @@
   gap: var(--entei-space-12);
   padding-block: var(--entei-space-8);
   background: transparent;
-  border-bottom: 1px solid oklch(1 0 0 / 0.1);
+  border-bottom: none;
 }
 
 .entei-timeline-back {
@@ -706,7 +706,9 @@
     margin-inline: calc(var(--entei-gutter) * -1);
     padding: calc(var(--entei-safe-top) + var(--entei-space-8))
       var(--entei-gutter) var(--entei-space-8);
-    background-color: var(--entei-bg);
+    background: transparent;
+    background-color: transparent;
+    border-bottom: none;
   }
 
   /* Topbar back control: matches .entei-settings-back square card-radius icon button */
@@ -727,7 +729,7 @@
   .entei-timeline-detail-title {
     font-size: 1.125rem;
     font-weight: 600;
-    color: var(--entei-text-primary);
+    color: var(--entei-text-secondary);
   }
 
   .entei-timeline-reply {

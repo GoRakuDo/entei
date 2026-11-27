@@ -1675,7 +1675,7 @@ body[data-page='settings'] .entei-main {
   font-family: var(--entei-font-body);
   font-size: 1.125rem;
   font-weight: 600;
-  color: var(--entei-text-primary);
+  color: var(--entei-text-secondary);
   line-height: 1;
 }
 
