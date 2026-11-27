@@ -1672,6 +1672,15 @@ body[data-page='settings'] .entei-main {
 }
 
 .entei-settings-mobile-title {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  height: var(--entei-touch-min);
+  min-height: var(--entei-touch-min);
+  padding: 0 var(--entei-space-16);
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-card);
   font-family: var(--entei-font-body);
   font-size: 1.125rem;
   font-weight: 600;
@@ -1744,7 +1753,9 @@ body[data-page='settings'] .entei-main {
   }
 
   .entei-settings-mobile-header {
-    padding-block-start: calc(var(--entei-safe-top) + var(--entei-space-12));
+    margin-block-start: calc(var(--entei-safe-top) + var(--entei-space-8));
+    margin-block-end: var(--entei-space-16);
+    padding: 0 var(--entei-gutter);
   }
 
   .entei-settings-content {

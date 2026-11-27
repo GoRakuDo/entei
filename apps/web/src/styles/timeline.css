@@ -703,9 +703,10 @@
     align-items: center;
     z-index: var(--entei-z-topbar);
     min-height: var(--entei-topbar-height);
-    margin-inline: calc(var(--entei-gutter) * -1);
-    padding: calc(var(--entei-safe-top) + var(--entei-space-8))
-      var(--entei-gutter) var(--entei-space-8);
+    margin-inline: 0;
+    margin-block-start: calc(var(--entei-safe-top) + var(--entei-space-8));
+    margin-block-end: var(--entei-space-16);
+    padding: 0;
     background: transparent;
     background-color: transparent;
     border-bottom: none;
@@ -727,9 +728,19 @@
   }
 
   .entei-timeline-detail-title {
+    display: flex;
+    align-items: center;
+    flex: 1 1 auto;
+    height: var(--entei-touch-min);
+    min-height: var(--entei-touch-min);
+    padding: 0 var(--entei-space-16);
+    background-color: var(--entei-surface);
+    border: 1px solid oklch(100% 0 0deg / 0.08);
+    border-radius: var(--entei-radius-card);
     font-size: 1.125rem;
     font-weight: 600;
     color: var(--entei-text-secondary);
+    margin: 0;
   }
 
   .entei-timeline-reply {
