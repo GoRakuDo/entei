@@ -722,16 +722,12 @@
   }
 
   /* The page's TopBar owns the top edge on desktop, so the thread header only
-     needs its own 8px breathing room instead of the mobile top-bar height.
-     Backdrop blur + gradient mask prevents thread content from showing through
-     the header while scrolling. */
+     needs its own 8px breathing room instead of the mobile top-bar height. */
   .entei-timeline-detail-head {
     z-index: var(--entei-z-content);
     min-height: 0;
     padding-block: var(--entei-space-8);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    background: linear-gradient(to bottom, var(--entei-bg) 60%, transparent);
+    background: transparent;
   }
 
   /* Bare icon button: the wallpaper shows through and the hover fill is the
