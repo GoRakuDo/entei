@@ -308,9 +308,10 @@
  * ------------------------------------------------------------------------------
  * Global (not Astro-scoped) for the same reason as the nav settings trigger
  * above: the Settings row is a React island and carries no Astro scope hash.
- * The sidebar is fixed and vertically centered on the left edge; it does NOT
- * reserve width inside #entei-main, so the timeline stays centered in the
- * viewport (the sidebar floats over the empty left gutter).
+ * The sidebar is fixed and vertically centered on the left edge. It does not
+ * carry its own #entei-main padding: Home's index.astro pads #entei-main on
+ * desktop to reserve the sidebar width and left-align the 42rem timeline next
+ * to it, so this file only positions the sidebar itself.
  * ============================================================================== */
 
 @media (max-width: 767px) {
@@ -320,15 +321,6 @@
 }
 
 @media (min-width: 768px) {
-  /* On narrower desktop viewports (768px-1231px), reserve padding so the fixed sidebar
-     does not collide with the 42rem timeline. On wide viewports (>=1232px), no padding
-     is needed and the timeline sits dead-center in the screen. */
-  @media (max-width: 1231px) {
-    body:has([data-entei-desktop-sidebar]) #entei-main {
-      padding-left: calc(var(--entei-sidebar-width) + var(--entei-space-24));
-    }
-  }
-
   .entei-desktop-sidebar {
     position: fixed;
     top: 0;
