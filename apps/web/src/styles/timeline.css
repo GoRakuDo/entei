@@ -414,7 +414,7 @@
 .entei-timeline-post-head {
   display: flex;
   align-items: center;
-  gap: var(--entei-space-12);
+  gap: var(--entei-space-16);
   min-width: 0;
 }
 
@@ -611,7 +611,7 @@
 .entei-timeline-reply {
   display: flex;
   align-items: flex-start;
-  gap: var(--entei-space-12);
+  gap: var(--entei-space-16);
   padding-block: var(--entei-space-16);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
@@ -632,7 +632,7 @@
 .entei-timeline-comment {
   display: flex;
   align-items: flex-start;
-  gap: var(--entei-space-12);
+  gap: var(--entei-space-16);
   padding-block: var(--entei-space-16);
   border-bottom: 1px solid oklch(1 0 0 / 0.06);
 }
@@ -741,6 +741,6 @@
   }
 
   .entei-timeline-reply {
-    gap: var(--entei-space-8);
+    gap: var(--entei-space-16);
   }
 }
