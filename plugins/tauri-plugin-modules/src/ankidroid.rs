@@ -2,13 +2,20 @@
 //!
 //! The web layer keeps speaking the AnkiConnect wire protocol
 //! (`{ action, version, params, key }` in, `{ result, error }` out). Only the
-//! transport changes: on Android `tauri-bridge.ts` reroutes those calls to
-//! `plugin:modules|modules_ankidroid_request`, this module forwards the action
-//! to the Kotlin [`AnkiDroidModule`], and the Kotlin side answers out of
-//! AnkiDroid's own ContentProvider (`FlashCardsContract`) in-process — no HTTP
-//! server on the phone and no second APK.
+//! transport changes: this module forwards the action to the Kotlin
+//! [`AnkiDroidModule`], and the Kotlin side answers out of AnkiDroid's own
+//! ContentProvider (`FlashCardsContract`) in-process — no HTTP server on the
+//! phone and no second APK.
 //!
-//! Phase 1 opens the transport:
+//! The frontend does **not** reach this module yet: `apps/web`'s
+//! `features/player/tauri-bridge.ts` still sends every AnkiConnect call to the
+//! desktop loopback plugin (`plugin:anki|anki_request`), so today these two
+//! commands are only reachable from Rust. Routing that bridge to
+//! `plugin:modules|modules_ankidroid_request` on Android is phase 3 of
+//! `docs/ANKIDROID_MODULE_ARCHITECTURE.md` §8, and it is the one gap left before
+//! the Android export flow runs end to end.
+//!
+//! The whole action surface is live (phase 2):
 //!
 //! - [`init_android`] registers the Kotlin plugin under
 //!   [`ANKIDROID_IDENTIFIER`] and returns the handle `lib.rs` manages as
@@ -20,9 +27,9 @@
 //!   `AnkiNativeConnectionStatus` shape, so the web layer validates both with
 //!   one guard.
 //!
-//! The action implementations (`DeckApi`, `ModelApi`, `NoteApi`, `CardApi`,
-//! `MediaApi`) arrive in phase 2. Until then the Kotlin side answers `version`
-//! and reports every other action inside the envelope.
+//! The Kotlin side routes each action to `DeckApi`, `ModelApi`, `NoteApi`,
+//! `CardApi` or `MediaApi` (see §5 of `docs/ANKIDROID_MODULE_ARCHITECTURE.md`)
+//! and answers unknown actions inside the envelope.
 //!
 //! Both commands are compiled on every target: a desktop build answers
 //! [`UNSUPPORTED_PLATFORM`] rather than failing to resolve the command, so the
