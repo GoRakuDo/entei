@@ -458,6 +458,8 @@
 .entei-timeline-author {
   display: flex;
   flex-direction: column;
+  justify-content: center;
+  min-height: var(--entei-timeline-avatar-column);
   min-width: 0;
   line-height: 1.25;
 }
