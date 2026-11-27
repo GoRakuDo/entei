@@ -765,10 +765,10 @@ export default function TimelineFeed() {
           </div>
 
           <article className="entei-timeline-detail-post">
-            <div className="entei-timeline-post-head">
-              <span className="entei-timeline-avatar entei-timeline-detail-avatar">
-                <img src={selectedPost.avatar} alt="" loading="lazy" />
-              </span>
+            <span className="entei-timeline-avatar entei-timeline-detail-avatar">
+              <img src={selectedPost.avatar} alt="" loading="lazy" />
+            </span>
+            <div className="entei-timeline-detail-main">
               <span className="entei-timeline-author">
                 <span className="entei-timeline-author-name">
                   {selectedPost.authorName}
@@ -795,39 +795,39 @@ export default function TimelineFeed() {
                   )}
                 </span>
               </span>
-            </div>
 
-            <p className="entei-timeline-detail-body">{selectedPost.message}</p>
+              <p className="entei-timeline-detail-body">{selectedPost.message}</p>
 
-            <div className="entei-timeline-post-actions">
-              <button
-                type="button"
-                className="entei-timeline-action"
-                aria-pressed={detailLiked}
-                aria-label={actionLabel(
-                  detailLiked ? t.actionUnlike : t.actionLike,
-                  detailLikeCountLabel,
-                )}
-                onClick={() => toggleLike(selectedPost.id)}
-              >
-                <Sparkles size={14} aria-hidden="true" />
-                <span>{detailLiked ? t.actionUnlike : t.actionLike}</span>
-                {detailLikeCountLabel !== '' && (
-                  <span className="entei-timeline-action-count">
-                    {detailLikeCountLabel}
-                  </span>
-                )}
-              </button>
-              <button
-                type="button"
-                className="entei-timeline-action"
-                onClick={() => {
-                  void sharePost(selectedPost);
-                }}
-              >
-                <Share2 size={14} aria-hidden="true" />
-                <span>{t.actionShare}</span>
-              </button>
+              <div className="entei-timeline-post-actions">
+                <button
+                  type="button"
+                  className="entei-timeline-action"
+                  aria-pressed={detailLiked}
+                  aria-label={actionLabel(
+                    detailLiked ? t.actionUnlike : t.actionLike,
+                    detailLikeCountLabel,
+                  )}
+                  onClick={() => toggleLike(selectedPost.id)}
+                >
+                  <Sparkles size={14} aria-hidden="true" />
+                  <span>{detailLiked ? t.actionUnlike : t.actionLike}</span>
+                  {detailLikeCountLabel !== '' && (
+                    <span className="entei-timeline-action-count">
+                      {detailLikeCountLabel}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="entei-timeline-action"
+                  onClick={() => {
+                    void sharePost(selectedPost);
+                  }}
+                >
+                  <Share2 size={14} aria-hidden="true" />
+                  <span>{t.actionShare}</span>
+                </button>
+              </div>
             </div>
           </article>
 

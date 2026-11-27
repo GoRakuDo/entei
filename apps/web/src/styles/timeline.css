@@ -581,26 +581,32 @@
   color: var(--entei-text);
 }
 
-/* Focused parent post: larger avatar and body than a feed row. */
+/* Focused parent post: matches comment layout (2-column: avatar left, content right) */
 .entei-timeline-detail-post {
   display: flex;
-  flex-direction: column;
+  align-items: flex-start;
   gap: var(--entei-space-16);
-  /* Symmetric 16px block padding, flush inline (no side padding) so it
-     aligns flush with the header and page container. */
   padding: var(--entei-space-16) 0;
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 
 .entei-timeline-detail-avatar {
-  width: var(--entei-space-48);
-  height: var(--entei-space-48);
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
+}
+
+.entei-timeline-detail-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
 }
 
 .entei-timeline-detail-body {
   margin: 0;
-  font-size: 1.0625rem;
-  line-height: 1.65;
+  font-size: 0.9375rem;
+  line-height: 1.55;
   color: var(--entei-text);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
