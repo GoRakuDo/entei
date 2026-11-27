@@ -752,6 +752,9 @@ export default function TimelineFeed() {
       {isDetail && selectedPost !== null ? (
         /* ===== POST DETAIL (thread) ===== */
         <div className="entei-timeline-detail">
+          {/* Sticky thread header: the Back card fills the 44px avatar column
+              and the title starts on the content column, so the header reads
+              as part of the same grid as the post below it. */}
           <div className="entei-timeline-detail-head">
             <button
               type="button"
@@ -765,7 +768,7 @@ export default function TimelineFeed() {
           </div>
 
           <article className="entei-timeline-detail-post">
-            <span className="entei-timeline-avatar entei-timeline-detail-avatar">
+            <span className="entei-timeline-avatar">
               <img src={selectedPost.avatar} alt="" loading="lazy" />
             </span>
             <div className="entei-timeline-detail-main">
@@ -835,7 +838,7 @@ export default function TimelineFeed() {
               control comes first in the DOM so focus moves from the textarea
               into the footer actions (official InputGroupAddon contract). */}
           <form className="entei-timeline-reply" onSubmit={handleReply}>
-            <span className="entei-timeline-avatar entei-timeline-reply-avatar">
+            <span className="entei-timeline-avatar">
               {author !== null && (
                 <img src={author.avatar} alt={t.avatarAlt} loading="lazy" />
               )}
@@ -881,7 +884,7 @@ export default function TimelineFeed() {
             <ul className="entei-timeline-comments" role="list">
               {thread.map((comment) => (
                 <li className="entei-timeline-comment" key={comment.id}>
-                  <span className="entei-timeline-avatar entei-timeline-comment-avatar">
+                  <span className="entei-timeline-avatar">
                     <img src={comment.author.avatar} alt="" loading="lazy" />
                   </span>
                   <div className="entei-timeline-comment-main">
@@ -1030,12 +1033,14 @@ export default function TimelineFeed() {
                   key={post.id}
                   onClick={() => openPost(post.id)}
                 >
-                  {/* The whole card opens the thread. The head + body wrapper
-                      keeps the keyboard affordance (role=button + focus ring)
-                      because the content is flow content; the pointer handler
-                      lives on the card so padding and the action-row gutter
-                      are clickable too. Action pills stop propagation so
-                      Like/Share never navigate. */}
+                  {/* The whole card opens the thread. The avatar + content
+                      wrapper keeps the keyboard affordance (role=button +
+                      focus ring) because the content is flow content; the
+                      pointer handler lives on the card so padding and the
+                      action-row gutter are clickable too. Action pills stop
+                      propagation so Like/Share never navigate.
+                      Same two-column grid as the thread below (`post-open`),
+                      so opening a post never shifts the avatar or the text. */}
                   <div
                     className="entei-timeline-post-open"
                     role="button"
@@ -1046,10 +1051,10 @@ export default function TimelineFeed() {
                       openPost(post.id);
                     }}
                   >
-                    <div className="entei-timeline-post-head">
-                      <span className="entei-timeline-avatar">
-                        <img src={post.avatar} alt="" loading="lazy" />
-                      </span>
+                    <span className="entei-timeline-avatar">
+                      <img src={post.avatar} alt="" loading="lazy" />
+                    </span>
+                    <div className="entei-timeline-post-main">
                       <span className="entei-timeline-author">
                         <span className="entei-timeline-author-name">
                           {post.authorName}
@@ -1076,9 +1081,11 @@ export default function TimelineFeed() {
                           )}
                         </span>
                       </span>
-                    </div>
 
-                    <p className="entei-timeline-post-body">{post.message}</p>
+                      <p className="entei-timeline-post-body">
+                        {post.message}
+                      </p>
+                    </div>
                   </div>
 
                   <div className="entei-timeline-post-actions">

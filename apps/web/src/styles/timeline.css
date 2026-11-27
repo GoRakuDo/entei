@@ -9,9 +9,32 @@
  * divider-separated post list with Comment / Like / Share.
  * Desktop keeps a centered reading column; mobile runs edge-to-edge inside the
  * shared page gutter (1rem).
+ *
+ * ONE GRID FOR THE WHOLE PAGE
+ * ---------------------------------------------------------------------------
+ * Every row of the timeline is the same two-column grid:
+ *
+ *     | avatar 44px | 16px gap | content ............................. |
+ *     ^ x = 0 of `.entei-timeline-root` (the 42rem reading column)
+ *
+ * Composer, feed post, thread header, focused post, reply composer and reply
+ * all share it, so nothing shifts sideways when the feed is replaced by the
+ * thread: the avatar stays at 0 and the author / body / action row all start
+ * on the same vertical line (44 + 16 = 60px).
+ *
+ * Mobile-first: the base rules ARE the phone layout, and the single
+ * `@media (min-width: 768px)` block at the end adds the desktop refinements.
+ * A phone rule never fights a desktop rule, and there are no negative margins.
  * =========================================================================== */
 
+/* ===== ROOT ===== */
+
 .entei-timeline-root {
+  /* The two tracks shared by every row below. Declared once here so the avatar
+     column can never drift between composer, feed and thread. */
+  --entei-timeline-avatar-column: var(--entei-touch-min);
+  --entei-timeline-row-gap: var(--entei-space-16);
+
   grid-column: 1 / -1;
   width: 100%;
   max-width: 42rem;
@@ -25,26 +48,42 @@
   color: var(--entei-text);
 }
 
-/* Post detail (`/post/:id`-style thread view) starts with its own sticky
-   back-header, so both feed-level paddings are dropped: the header sits flush
-   at the top and the comment thread's own padding owns the bottom edge. */
+/* Post detail (`/` thread view) starts with its own sticky back-header, so the
+   root keeps the same flush block edges in both modes. The class is the
+   island's state hook; the shared grid above does the alignment work. */
 .entei-timeline-root--detail {
   padding-block: 0;
+}
+
+/* ===== SHARED ROW GRID =====
+ * One rule for every row: the avatar is always track 1 (44px) and the content
+ * always track 2, separated by the same 16px gap. `minmax(0, 1fr)` keeps a long
+ * unbroken word from widening the row. Each row declares its own `align-items`
+ * where it needs to differ. */
+.entei-timeline-composer-row,
+.entei-timeline-post-open,
+.entei-timeline-detail-head,
+.entei-timeline-detail-post,
+.entei-timeline-reply,
+.entei-timeline-comment {
+  display: grid;
+  grid-template-columns:
+    var(--entei-timeline-avatar-column)
+    minmax(0, 1fr);
+  column-gap: var(--entei-timeline-row-gap);
 }
 
 /* ===== COMPOSER ===== */
 
 .entei-timeline-composer {
-  /* Symmetric 16px above/below now owns the breathing room that used to sit
-     on the root, so the divider keeps an even gap on both sides. */
+  /* Symmetric 16px above/below owns the breathing room that used to sit on the
+     root, so the divider keeps an even gap on both sides. */
   padding-block: var(--entei-space-16);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 
 .entei-timeline-composer-row {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--entei-space-16);
+  align-items: start;
 }
 
 /* Rounded-hexagon avatar frame (pointy-top, per approved mockup).
@@ -63,11 +102,11 @@
   pointer-events: none;
 }
 
+/* The avatar is always exactly one grid track wide. */
 .entei-timeline-avatar {
-  flex: 0 0 auto;
   display: block;
-  width: var(--entei-touch-min);
-  height: var(--entei-touch-min);
+  width: var(--entei-timeline-avatar-column);
+  height: var(--entei-timeline-avatar-column);
   padding: 0;
   background-color: transparent;
   clip-path: url(#entei-hex-clip);
@@ -194,7 +233,7 @@
      label stays optically centered. */
   min-height: 2.25rem;
   /* Ample, symmetric horizontal breathing room — never a cramped box. */
-  padding: 0 var(--entei-space-24);
+  padding: 0 var(--entei-space-16);
   border: none;
   border-radius: var(--entei-radius-pill);
   background-color: var(--entei-btn-color);
@@ -283,7 +322,7 @@
   }
 }
 
-/* ===== DESKTOP "NEW POSTS" PILL ===== */
+/* ===== "NEW POSTS" PILL ===== */
 
 /* Sits between the composer and the feed. It only exists while posts are
    waiting, so the fade-in is the whole reveal. */
@@ -389,19 +428,18 @@
   background-color: oklch(1 0 0 / 0.03);
 }
 
-/* Inner click surface: head + body. Keeps the keyboard affordance (focus ring)
-   on the readable content while the whole card handles pointer clicks. */
+/* Inner click surface: avatar + content column. Keeps the keyboard affordance
+   (focus ring) on the readable content while the whole card handles pointer
+   clicks. Block padding only — an inline inset here would push the avatar off
+   the shared grid and make the page jump when a post opens. */
 .entei-timeline-post-open {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-8);
-  padding: var(--entei-space-8);
+  align-items: start;
+  padding-block: var(--entei-space-8);
   cursor: pointer;
-  border-radius: var(--entei-radius-lg);
 }
 
 .entei-timeline-post-open:focus-visible {
-  outline: 2px solid var(--entei-accent-light);
+  outline: 2px solid var(--entei-focus-ring);
   outline-offset: 4px;
 }
 
@@ -411,10 +449,13 @@
   }
 }
 
-.entei-timeline-post-head {
+/* Content column of a feed post / focused post: author block, body and (in the
+   thread) the action row stack here. */
+.entei-timeline-post-main,
+.entei-timeline-detail-main {
   display: flex;
-  align-items: center;
-  gap: var(--entei-space-16);
+  flex-direction: column;
+  gap: var(--entei-space-8);
   min-width: 0;
 }
 
@@ -467,15 +508,21 @@
   overflow-wrap: anywhere;
 }
 
+/* Action row: indented onto the content column (44 + 16) so it sits on the
+   same line as the body above it and as the thread's action row below. Only
+   the feed row needs this — inside the thread the row already lives in the
+   content column of `.entei-timeline-detail-main`. */
 .entei-timeline-post-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--entei-space-8);
-  /* Rule #2471: no pull-out margin. The first pill's box aligns flush with
-     the card's left edge (and the composer above); its own symmetric inline
-     padding optically centres the icon inside the pill. The trailing pill is
-     bounded by the card's right edge, so Share can never spill out. */
+  gap: var(--entei-space-4);
+}
+
+.entei-timeline-post > .entei-timeline-post-actions {
+  padding-inline-start: calc(
+    var(--entei-timeline-avatar-column) + var(--entei-timeline-row-gap)
+  );
 }
 
 .entei-timeline-action {
@@ -487,7 +534,7 @@
   min-height: 2.25rem;
   /* Generous, symmetric padding inside a fully rounded pill — the previous
      squarish radius-md box with 8px/4px inline padding looked cramped. */
-  padding: 0 var(--entei-space-16);
+  padding: 0 var(--entei-space-12);
   border: none;
   border-radius: var(--entei-radius-pill);
   background-color: transparent;
@@ -524,35 +571,32 @@
   flex-direction: column;
 }
 
-/* Sticky header keeps Back reachable while the thread scrolls. Transparent on
-   purpose: the page shows the gradient wallpaper behind it, avoiding an opaque
-   black strip over the background. */
+/* Sticky header: the thread scrolls underneath while Back stays in reach.
+   Transparent on purpose — the page shows the gradient wallpaper behind it,
+   avoiding an opaque strip over the background. It IS the page top bar on
+   mobile (Home has none there), hence the top-bar height. */
 .entei-timeline-detail-head {
   position: sticky;
   top: 0;
-  z-index: 1;
-  display: flex;
+  z-index: var(--entei-z-topbar);
   align-items: center;
-  gap: var(--entei-space-12);
-  padding-block: var(--entei-space-8);
+  min-height: var(--entei-topbar-height);
   background: transparent;
-  border-bottom: none;
 }
 
+/* Back control: the same 44px card as the app's other icon buttons, so it
+   fills the avatar column exactly and the title starts on the content column. */
 .entei-timeline-back {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--entei-space-8);
-  min-height: 2.25rem;
-  padding: 0 var(--entei-space-16);
-  border: none;
-  border-radius: var(--entei-radius-pill);
-  background-color: transparent;
-  color: var(--entei-text-muted);
-  font-size: 0.875rem;
-  font-weight: 600;
-  line-height: 1.25;
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
+  padding: 0;
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-card);
+  background-color: var(--entei-surface);
+  color: var(--entei-text-secondary);
   cursor: pointer;
   transition:
     background-color var(--entei-duration-fast) var(--entei-ease-productive),
@@ -568,39 +612,28 @@
   color: var(--entei-accent-light);
 }
 
-.entei-timeline-back:focus-visible {
-  outline: 2px solid var(--entei-accent-light);
-  outline-offset: 2px;
-}
-
+/* Thread title: its own card on mobile, paired with the Back card. */
 .entei-timeline-detail-title {
-  margin: 0;
-  font-size: 1.0625rem;
-  font-weight: 700;
-  line-height: 1.25;
-  color: var(--entei-text);
-}
-
-/* Focused parent post: matches comment layout (2-column: avatar left, content right) */
-.entei-timeline-detail-post {
   display: flex;
-  align-items: flex-start;
-  gap: var(--entei-space-16);
-  padding: var(--entei-space-16) 0;
-  border-bottom: 1px solid oklch(1 0 0 / 0.1);
-}
-
-.entei-timeline-detail-avatar {
-  width: var(--entei-touch-min);
-  height: var(--entei-touch-min);
-}
-
-.entei-timeline-detail-main {
-  flex: 1 1 auto;
+  align-items: center;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-8);
+  height: var(--entei-touch-min);
+  margin: 0;
+  padding: 0 var(--entei-space-16);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-card);
+  background-color: var(--entei-surface);
+  color: var(--entei-text-secondary);
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Focused parent post: the same grid as every reply below it. */
+.entei-timeline-detail-post {
+  align-items: start;
+  padding-block: var(--entei-space-16);
+  border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 
 .entei-timeline-detail-body {
@@ -615,16 +648,9 @@
 /* ===== REPLY COMPOSER ===== */
 
 .entei-timeline-reply {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--entei-space-16);
+  align-items: start;
   padding-block: var(--entei-space-16);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
-}
-
-.entei-timeline-reply-avatar {
-  width: var(--entei-touch-min);
-  height: var(--entei-touch-min);
 }
 
 /* ===== COMMENTS THREAD ===== */
@@ -636,9 +662,7 @@
 }
 
 .entei-timeline-comment {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--entei-space-16);
+  align-items: start;
   padding-block: var(--entei-space-16);
   border-bottom: 1px solid oklch(1 0 0 / 0.06);
 }
@@ -647,16 +671,10 @@
   border-bottom: none;
 }
 
-.entei-timeline-comment-avatar {
-  width: var(--entei-touch-min);
-  height: var(--entei-touch-min);
-}
-
 .entei-timeline-comment-main {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-4);
-  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -677,76 +695,47 @@
   font-size: 0.8125rem;
 }
 
-/* ===== MOBILE ===== */
-
-@media (max-width: 767px) {
-  /* The mobile pill keeps the same tighter inline padding; the action row no
-     longer pulls out (Rule #2471), so it stays flush with the card edge. */
+/* ===== DESKTOP (>= 768px) =====
+ * Only what genuinely differs from the phone layout: the pills get roomier, and
+ * the thread header sheds the mobile cards so it reads as a light icon + label
+ * row pinned to the reading column. The grid itself never changes. */
+@media (min-width: 768px) {
   .entei-timeline-post-actions {
-    gap: var(--entei-space-4);
+    gap: var(--entei-space-8);
   }
 
   .entei-timeline-action {
-    padding: 0 var(--entei-space-12);
+    padding: 0 var(--entei-space-16);
   }
 
   .entei-timeline-publish,
   .entei-timeline-reply-submit {
-    padding: 0 var(--entei-space-16);
+    padding: 0 var(--entei-space-24);
   }
 
-  /* On mobile detail view, expand to full width so the header spans edge to edge */
-  .entei-timeline-root--detail {
-    max-width: none;
-  }
-
-  /* Mobile has no separate page top bar on Home, so the thread header IS the
-     surface top bar: full-bleed across the page gutter, topbar height and
-     safe-area padding, exactly like `.entei-topbar-mobile` on /modules/. */
+  /* The page's TopBar owns the top edge on desktop, so the thread header only
+     needs its own 8px breathing room instead of the mobile top-bar height. */
   .entei-timeline-detail-head {
-    gap: var(--entei-space-12);
-    align-items: center;
-    z-index: var(--entei-z-topbar);
-    min-height: var(--entei-topbar-height);
-    margin: 0;
-    padding: 0;
-    background: transparent;
-    background-color: transparent;
-    border-bottom: none;
+    z-index: var(--entei-z-content);
+    min-height: 0;
+    padding-block: var(--entei-space-8);
   }
 
-  /* Topbar back control: matches .entei-settings-back square card-radius icon button */
+  /* Bare icon button: the wallpaper shows through and the hover fill is the
+     only surface. Same 44px box, so the avatar column never moves. */
   .entei-timeline-back {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: var(--entei-touch-min);
-    height: var(--entei-touch-min);
-    min-height: var(--entei-touch-min);
-    padding: 0;
-    background-color: var(--entei-surface);
-    border: 1px solid oklch(100% 0 0deg / 0.08);
-    border-radius: var(--entei-radius-card);
-    color: var(--entei-text-secondary);
+    border-color: transparent;
+    background-color: transparent;
   }
 
+  /* Title as plain secondary text — no card to fight the reading column. */
   .entei-timeline-detail-title {
-    display: flex;
-    align-items: center;
-    flex: 1 1 auto;
-    height: var(--entei-touch-min);
-    min-height: var(--entei-touch-min);
-    padding: 0 var(--entei-space-16);
-    background-color: var(--entei-surface);
-    border: 1px solid oklch(100% 0 0deg / 0.08);
-    border-radius: var(--entei-radius-card);
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: var(--entei-text-secondary);
-    margin: 0;
-  }
-
-  .entei-timeline-reply {
-    gap: var(--entei-space-16);
+    height: auto;
+    padding: 0;
+    border-color: transparent;
+    background-color: transparent;
+    font-size: 1.0625rem;
+    font-weight: 700;
+    line-height: 1.25;
   }
 }

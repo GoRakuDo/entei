@@ -623,7 +623,7 @@ describe('TimelineFeed — post detail', () => {
     fireEvent.click(screen.getByText(seedPost.message));
 
     // The feed is replaced by the thread: header title + focused post + back.
-    expect(screen.getByRole('heading', { name: 'Pos' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Komentar' })).toBeTruthy();
     // Detail mode drops the feed-level top padding so the sticky back-header
     // sits flush against the top edge instead of leaving an empty band.
     expect(
@@ -642,7 +642,7 @@ describe('TimelineFeed — post detail', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: /^Comment/ })[0]!);
 
-    expect(screen.getByRole('heading', { name: 'Pos' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Komentar' })).toBeTruthy();
   });
 
   it('does not open the detail view from the Like button', async () => {
@@ -652,7 +652,7 @@ describe('TimelineFeed — post detail', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /^Like/ })[0]!);
 
     // The like action stops propagation, so the card's open handler never runs.
-    expect(screen.queryByRole('heading', { name: 'Pos' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Komentar' })).toBeNull();
     expect(readTimelineState().likedIds).toHaveLength(1);
   });
 
@@ -664,7 +664,7 @@ describe('TimelineFeed — post detail', () => {
     // card is a target, including its padding.
     fireEvent.click(screen.getAllByRole('listitem')[0]!);
 
-    expect(screen.getByRole('heading', { name: 'Pos' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Komentar' })).toBeTruthy();
   });
 
   it('renders the seeded replies of the opened post', async () => {
@@ -721,7 +721,7 @@ describe('TimelineFeed — post detail', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(
       TIMELINE_SEED_POSTS.length,
     );
-    expect(screen.queryByRole('heading', { name: 'Pos' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Komentar' })).toBeNull();
   });
 
   it('consumes the pushed history entry when closing the thread', async () => {
@@ -746,7 +746,7 @@ describe('TimelineFeed — post detail', () => {
     renderFeed();
     await screen.findAllByRole('listitem');
     fireEvent.click(screen.getByText(seedPost.message));
-    expect(screen.getByRole('heading', { name: 'Pos' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Komentar' })).toBeTruthy();
 
     await act(async () => {
       window.dispatchEvent(new PopStateEvent('popstate'));
