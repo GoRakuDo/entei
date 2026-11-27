@@ -1753,7 +1753,7 @@ body[data-page='settings'] .entei-main {
   }
 
   .entei-settings-mobile-header {
-    margin-block: var(--entei-space-16);
+    margin: 0;
     padding: 0 var(--entei-gutter);
   }
 

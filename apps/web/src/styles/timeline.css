@@ -585,11 +585,10 @@
 .entei-timeline-detail-post {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-12);
-  /* Symmetric 16px block padding; the action row no longer pulls out with a
-     negative margin (Rule #2471), so its pills align flush with the body's
-     left edge. */
-  padding: var(--entei-space-16);
+  gap: var(--entei-space-16);
+  /* Symmetric 16px block padding, flush inline (no side padding) so it
+     aligns flush with the header and page container. */
+  padding: var(--entei-space-16) 0;
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 
@@ -703,8 +702,7 @@
     align-items: center;
     z-index: var(--entei-z-topbar);
     min-height: var(--entei-topbar-height);
-    margin-inline: 0;
-    margin-block: var(--entei-space-16);
+    margin: 0;
     padding: 0;
     background: transparent;
     background-color: transparent;
