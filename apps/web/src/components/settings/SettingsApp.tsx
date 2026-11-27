@@ -701,13 +701,25 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
   );
 
   function backToMenu() {
-    // Mobile drill-down: only the Modules landing has children (a submenu);
-    // every other group (incl. Anki) sits at the top level, so Back returns
-    // to the General menu.
+    // Mobile drill-down: if inside a module's settings (e.g. /settings/?group=module&item=yomitan),
+    // drill back up to the Modules landing list.
     if (selection.group === 'module' && selection.item) {
       navigate('module', null);
-    } else {
-      navigate('general', null);
+      return;
+    }
+
+    // Top-level settings (General, Appearance, Anki, Modules landing):
+    // return to the previous page (Home, Player, etc.) via browser history,
+    // or fall back to Home if directly navigated.
+    if (typeof window !== 'undefined') {
+      if (
+        window.history.length > 1 &&
+        (!document.referrer || document.referrer.startsWith(window.location.origin))
+      ) {
+        window.history.back();
+      } else {
+        window.location.href = '/';
+      }
     }
   }
 }
