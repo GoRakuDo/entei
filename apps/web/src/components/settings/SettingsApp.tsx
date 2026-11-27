@@ -448,9 +448,13 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
     >
       {/* Mobile drill-down back control (hidden on desktop via CSS). */}
       <div className="entei-settings-mobile-header">
-        <button type="button" className="entei-settings-back" onClick={backToMenu}>
+        <button
+          type="button"
+          className="entei-settings-back"
+          onClick={backToMenu}
+          aria-label={settings.back}
+        >
           <ArrowLeft className="entei-settings-back-icon" aria-hidden="true" />
-          <span>{settings.back}</span>
         </button>
       </div>
 
