@@ -67,7 +67,6 @@
  * where it needs to differ. */
 .entei-timeline-composer-row,
 .entei-timeline-post-open,
-.entei-timeline-detail-head,
 .entei-timeline-detail-post,
 .entei-timeline-reply,
 .entei-timeline-comment {
@@ -568,27 +567,26 @@
   flex-direction: column;
 }
 
-/* Sticky header: the thread scrolls underneath while Back stays in reach.
-   Transparent on purpose — the page shows the gradient wallpaper behind it,
-   avoiding an opaque strip over the background. It IS the page top bar on
-   mobile (Home has none there), hence the top-bar height. */
+/* Mobile thread header: matches .entei-settings-mobile-header structure exactly
+   (top padding 16px, 44px back card button + 44px title card, gap 12px). */
 .entei-timeline-detail-head {
-  position: sticky;
-  top: 0;
-  z-index: var(--entei-z-topbar);
+  display: flex;
   align-items: center;
-  min-height: var(--entei-topbar-height);
+  gap: var(--entei-space-12);
+  min-height: auto;
+  padding: var(--entei-space-16) 0 0;
+  margin: 0;
   background: transparent;
 }
 
-/* Back control: the same 36px box as the avatar column, so it
-   fills the column exactly and the title starts on the content column. */
+/* Back control: 44px card button on mobile matching settings back button.
+   Desktop overrides this to 36px bare icon matching the avatar column. */
 .entei-timeline-back {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--entei-timeline-avatar-column);
-  height: var(--entei-timeline-avatar-column);
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
   padding: 0;
   border: 1px solid oklch(100% 0 0deg / 0.08);
   border-radius: var(--entei-radius-card);
@@ -722,9 +720,14 @@
     padding: 0 var(--entei-space-24);
   }
 
-  /* The page's TopBar owns the top edge on desktop, so the thread header only
-     needs its own breathing room instead of the mobile top-bar height. */
+  /* The page's TopBar owns the top edge on desktop, so the thread header
+     switches from mobile flex cards to desktop 36px grid aligned with the feed. */
   .entei-timeline-detail-head {
+    display: grid;
+    grid-template-columns:
+      var(--entei-timeline-avatar-column)
+      minmax(0, 1fr);
+    column-gap: var(--entei-timeline-row-gap);
     z-index: var(--entei-z-content);
     min-height: 0;
     padding-block: var(--entei-space-12);
@@ -732,8 +735,10 @@
   }
 
   /* Bare icon button: the wallpaper shows through and the hover fill is the
-     only surface. Same 44px box, so the avatar column never moves. */
+     only surface. Exactly 36x36px matching the avatar column. */
   .entei-timeline-back {
+    width: var(--entei-timeline-avatar-column);
+    height: var(--entei-timeline-avatar-column);
     border-color: transparent;
     background-color: transparent;
   }
