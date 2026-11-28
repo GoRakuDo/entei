@@ -581,14 +581,14 @@
   background: transparent;
 }
 
-/* Back control: the same 44px card as the app's other icon buttons, so it
-   fills the avatar column exactly and the title starts on the content column. */
+/* Back control: the same 36px box as the avatar column, so it
+   fills the column exactly and the title starts on the content column. */
 .entei-timeline-back {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--entei-touch-min);
-  height: var(--entei-touch-min);
+  width: var(--entei-timeline-avatar-column);
+  height: var(--entei-timeline-avatar-column);
   padding: 0;
   border: 1px solid oklch(100% 0 0deg / 0.08);
   border-radius: var(--entei-radius-card);
