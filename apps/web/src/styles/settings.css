@@ -1728,18 +1728,21 @@ body[data-page='settings'] .entei-main {
       calc(var(--entei-space-32) + var(--entei-dock-height));
   }
 
-  /* On mobile the children live in their own submenu screen, so the inline
-     child list is suppressed (the submenu renders them at top level). */
-  .entei-settings-nav-children {
-    display: none;
-  }
-
-  .entei-settings-nav-chevron {
-    display: none;
-  }
-
+  /* On mobile the children expand INLINE under the Modul row (the nav is the
+     menu screen), so the chevron stays visible as the expand affordance and
+     the child list is styled by the shared rules above. */
   .entei-settings-nav-item--child {
     padding-inline-start: var(--entei-space-16);
+  }
+
+  /* Nothing is "current" on the top-level menu screen: every row is a flat
+     destination. React already omits aria-current there (the mobile menu has
+     no effective group); this keeps the pill off the desktop-only fallback
+     row in case a viewport is resized while the menu is open. */
+  .entei-settings-shell[data-depth='menu']
+    .entei-settings-nav-item[aria-current='page'] {
+    color: var(--entei-text-secondary);
+    background-color: transparent;
   }
 
   /* Menu (nav) is hidden once a group is selected; detail is hidden at the

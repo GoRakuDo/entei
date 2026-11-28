@@ -7,10 +7,14 @@
  * - Desktop (≥768px): Shadcn-Sidebar-style left nav tree + wide content pane.
  *   Groups: General / Appearance / Modules (every REGISTERED module whose
  *   manifest declares a settings tree).
- * - Mobile (<768px): hierarchical DRILL-DOWN. The left nav renders as the
- *   top-level menu; picking Modules opens a submenu of its children; every
- *   detail pane carries a "← Back" control. Menu ⇄ detail is CSS-toggled from
- *   state (data-depth on the shell), so a resize never needs a re-render.
+ * - Mobile (<768px): hierarchical DRILL-DOWN. The bare `/settings/` URL is
+ *   the full-screen top-level MENU (General / Appearance / Anki / Modules);
+ *   tapping a row opens its detail pane, and the Modules row expands its
+ *   child list inline (Yomitan / Jimaku.cc / Nadeshiko). Every detail pane
+ *   carries a "← Back" control. Menu ⇄ detail is CSS-toggled from state
+ *   (data-depth on the shell), so a resize never needs a re-render.
+ *   Desktop keeps BOTH panes always, so a `null` group resolves to General
+ *   there (`effectiveGroup`) while mobile leaves it null (= menu screen).
  *
  * PERSISTENCE (hybrid, no manual Save button): `initSettingsSync()` installs a
  * localStorage write interceptor that mirrors every settings key to the
@@ -106,7 +110,9 @@ type SettingsGroup = 'general' | 'appearance' | 'anki' | 'module';
  * are not offered a page at all.
  */
 interface SettingsSelection {
-  group: SettingsGroup;
+  /** `null` = the top-level MENU (bare `/settings/`). On mobile that screen is
+   *  the full-screen list of groups; on desktop it falls back to General. */
+  group: SettingsGroup | null;
   item: string | null;
 }
 
@@ -163,14 +169,18 @@ function writeBoolFlag(key: string, value: boolean): void {
   }
 }
 
-/** Parse `?group=&item=` into a validated selection (defaults to General). */
+/** Parse `?group=&item=` into a validated selection.
+ *
+ *  A missing/invalid `group` means the TOP-LEVEL MENU (`/settings/`), not
+ *  General: mobile needs that bare URL to be the menu screen, and desktop
+ *  resolves the menu to General at render time (see `effectiveGroup`). */
 function readSelectionFromUrl(): SettingsSelection {
-  if (typeof window === 'undefined') return { group: 'general', item: null };
+  if (typeof window === 'undefined') return { group: null, item: null };
   const params = new URLSearchParams(window.location.search);
   const group = params.get('group') as SettingsGroup | null;
   const item = params.get('item');
   if (!group || !VALID_GROUPS.includes(group)) {
-    return { group: 'general', item: null };
+    return { group: null, item: null };
   }
   if (group === 'module' && item !== null && item !== '') {
     // Any registered module id is addressable; the landing grid stays at null.
@@ -208,9 +218,43 @@ function moduleDescription(
 }
 
 /** Whether the mobile shell should show the top-level MENU (vs a detail pane).
- *  Only the Modules landing is a "menu" on mobile — it lists its children. */
+ *  The bare `/settings/` URL (`group === null`) IS the menu screen; every
+ *  group — including the Modules landing — is a detail pane. */
 function isMobileMenu(selection: SettingsSelection): boolean {
-  return selection.group === 'module' && selection.item === null;
+  return selection.group === null;
+}
+
+/** Media query separating the drill-down mobile shell from the two-pane one. */
+const MOBILE_MEDIA_QUERY = '(max-width: 767px)';
+
+/**
+ * History state this island writes on every push/replace.
+ *
+ * `enteiFromMenu` means "the entry directly BELOW this one is the settings
+ * menu". The drill-down's "←" needs that: returning to the menu by PUSHING a
+ * menu entry leaves the detail behind in the stack, so the menu's own "←"
+ * would step back INTO the pane the user just left. Knowing the parent is the
+ * menu lets "←" use `history.back()` there instead.
+ */
+interface SettingsHistoryState {
+  enteiFromMenu?: boolean;
+}
+
+/** Options for `navigate` (URL/state writes). */
+interface NavigateOptions {
+  /** Replace the current history entry instead of stacking a new one. */
+  replace?: boolean;
+  /** Override "the entry below is the menu" (defaults to "we were on it"). */
+  fromMenu?: boolean;
+}
+
+/** Current viewport is the drill-down mobile shell (SSR-safe, never throws). */
+function isMobileViewport(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia(MOBILE_MEDIA_QUERY).matches
+  );
 }
 
 export interface SettingsAppProps {
@@ -234,6 +278,10 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
   const [moduleState, setModuleState] = useState<ModuleEnabledState>(() =>
     readModuleState(),
   );
+  /* Drill-down vs two-pane. Mobile keeps the bare `/settings/` URL as the
+     menu screen and gives every group a back control; desktop always renders
+     both panes, so it resolves a `null` group to General instead. */
+  const [isMobile, setIsMobile] = useState<boolean>(() => isMobileViewport());
   /* Desktop sidebar collapsed state (icon-only rail) — persisted so the
      choice survives reloads. Mobile ignores it (drill-down owns the nav). */
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
@@ -269,6 +317,17 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
       writeBoolFlag(SIDEBAR_COLLAPSED_KEY, next);
       return next;
     });
+  }, []);
+
+  /* Track the mobile breakpoint so the nav's active row and the Modul row's
+     click behaviour match the layout that is actually on screen. */
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const mediaQuery = window.matchMedia(MOBILE_MEDIA_QUERY);
+    const handleChange = (event: MediaQueryListEvent) =>
+      setIsMobile(event.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
 
   /* Activate hybrid persistence (localStorage + desktop SQLite) and follow
@@ -366,16 +425,33 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
     [moduleState],
   );
 
-  /* Navigate: update state + the URL so deep links and browser Back work. */
+  /* Navigate: update state + the URL so deep links and browser Back work.
+     `group === null` targets the bare `/settings/` (the mobile menu screen). */
   const navigate = useCallback(
-    (group: SettingsGroup, item: string | null) => {
+    (
+      group: SettingsGroup | null,
+      item: string | null,
+      options: NavigateOptions = {},
+    ) => {
       setSelection({ group, item });
       const params = new URLSearchParams();
-      params.set('group', group);
-      if (group === 'module' && item) params.set('item', item);
-      window.history.pushState(null, '', `/settings/?${params.toString()}`);
+      if (group !== null) {
+        params.set('group', group);
+        if (group === 'module' && item) params.set('item', item);
+      }
+      const query = params.toString();
+      const url = query === '' ? '/settings/' : `/settings/?${query}`;
+      const state: SettingsHistoryState = {
+        enteiFromMenu:
+          options.fromMenu ?? (group !== null && selection.group === null),
+      };
+      if (options.replace === true) {
+        window.history.replaceState(state, '', url);
+      } else {
+        window.history.pushState(state, '', url);
+      }
     },
-    [],
+    [selection.group],
   );
 
   /* Browser Back / Forward re-read the URL. */
@@ -440,6 +516,30 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
     [modules, selection.item],
   );
 
+  /* Desktop is always two-pane, so the bare `/settings/` URL renders General
+     in the right pane (and marks Umum active). Mobile instead treats the bare
+     URL as the menu screen, so it must NOT resolve a default group. */
+  const effectiveGroup: SettingsGroup | null =
+    selection.group ?? (isMobile ? null : 'general');
+
+  /* Mobile header title — names the screen the user is currently on. */
+  const mobileTitle = (() => {
+    switch (selection.group) {
+      case null:
+        return settings.title;
+      case 'general':
+        return settings.general;
+      case 'appearance':
+        return settings.appearance;
+      case 'anki':
+        return settings.anki;
+      case 'module':
+        return selectedModule
+          ? moduleName(selectedModule, dict.modulesPage)
+          : settings.module;
+    }
+  })();
+
   return (
     <div
       className="entei-settings-shell"
@@ -456,7 +556,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
         >
           <ArrowLeft className="entei-settings-back-icon" aria-hidden="true" />
         </button>
-        <span className="entei-settings-mobile-title">{settings.title}</span>
+        <span className="entei-settings-mobile-title">{mobileTitle}</span>
       </div>
 
       {/* ------------------------------------------------------------------
@@ -481,8 +581,11 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
 
         {navGroups.map(({ id, label, Icon }) => {
           const isModule = id === 'module';
+          /* On the mobile menu screen nothing is "current" — every row is a
+             flat destination. Desktop always has a pane open, so the
+             effective group (General by default) carries the pill. */
           const isActive =
-            selection.group === id && (!isModule || selection.item === null);
+            effectiveGroup === id && (!isModule || selection.item === null);
           const Chevron = isModule && moduleExpanded ? ChevronDown : ChevronRight;
           return (
             <div className="entei-settings-nav-group" key={id}>
@@ -493,18 +596,26 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                 aria-expanded={isModule ? moduleExpanded : undefined}
                 aria-label={isModule ? `${label} — ${settings.opensSubmenu}` : undefined}
                 onClick={() => {
-                  if (isModule) {
-                    if (selection.group === 'module' && selection.item === null) {
-                      // Already on the Modules landing — toggle the accordion collapse
-                      toggleModuleExpanded();
-                    } else {
-                      // On a child page (Yomitan/Jimaku/Nadeshiko) or entering from another group —
-                      // ensure expanded and navigate to the Modules landing page
-                      expandModules();
-                      navigate(id, null);
-                    }
-                  } else {
+                  if (!isModule) {
                     navigate(id, null);
+                    return;
+                  }
+                  if (isMobile) {
+                    /* Mobile: the nav IS the menu screen, so Modul only opens
+                       its inline child list (Yomitan / Jimaku.cc / Nadeshiko)
+                       — navigating here would replace the menu with the
+                       Modules grid and hide the accordion. */
+                    toggleModuleExpanded();
+                    return;
+                  }
+                  if (selection.group === 'module' && selection.item === null) {
+                    // Already on the Modules landing — toggle the accordion collapse
+                    toggleModuleExpanded();
+                  } else {
+                    // On a child page (Yomitan/Jimaku/Nadeshiko) or entering from another group —
+                    // ensure expanded and navigate to the Modules landing page
+                    expandModules();
+                    navigate('module', null);
                   }
                 }}
               >
@@ -518,9 +629,9 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                 )}
               </button>
 
-              {/* Desktop: children inline, collapsible via the group toggle.
-                  Mobile: hidden — the submenu screen renders them at top level
-                  (CSS `display:none`). */}
+              {/* Children render inline on BOTH layouts: desktop collapses them
+                  via the group row, mobile expands them inside the menu
+                  screen (the drill-down keeps the nav visible at that depth). */}
               {isModule && moduleExpanded && (
                 <div className="entei-settings-nav-children">
                   {moduleChildren.map(
@@ -565,7 +676,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
        * CONTENT PANE
        * --------------------------------------------------------------- */}
       <div className="entei-settings-content">
-        {selection.group === 'general' && (
+        {effectiveGroup === 'general' && (
           <div className="entei-settings-section-stack">
             {/* Language */}
             <section className="entei-settings-section-card entei-settings-section-card--language">
@@ -597,7 +708,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
           </div>
         )}
 
-        {selection.group === 'appearance' && (
+        {effectiveGroup === 'appearance' && (
           <div className="entei-settings-section-stack">
             <SubtitleAppearanceTab
               dict={playerUI}
@@ -609,7 +720,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
         )}
 
         {/* Anki — connection, card managements, field profiles, miscellaneous */}
-        {selection.group === 'anki' && (
+        {effectiveGroup === 'anki' && (
           <div className="entei-settings-section-stack">
             <AnkiConnectionCard dict={dict.ankiConnection} notEditable={dict.yomitanSettings.notEditable} />
             <AnkiCardManagementsCard dict={dict.ankiCardManagements} />
@@ -619,7 +730,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
         )}
 
         {/* Modules landing: core-module switches in 2-column grid. */}
-        {selection.group === 'module' && selection.item === null && (
+        {effectiveGroup === 'module' && selection.item === null && (
           <div className="entei-settings-section-stack">
             <div className="entei-modules-toolbar">
               <SettingsButton
@@ -689,7 +800,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
          * descriptor tree, plus whatever host-owned editor a row's `source`
          * binds), so this page never names a module by id.
          * ------------------------------------------------------------- */}
-        {selection.group === 'module' &&
+        {effectiveGroup === 'module' &&
           selection.item !== null &&
           selectedModule !== undefined &&
           moduleHasSettings(selectedModule) && (
@@ -706,16 +817,37 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
   );
 
   function backToMenu() {
-    // Mobile drill-down: if inside a module's settings (e.g. /settings/?group=module&item=yomitan),
-    // drill back up to the Modules landing list.
-    if (selection.group === 'module' && selection.item) {
-      navigate('module', null);
+    /* True when the entry below the current one is the settings menu (every
+       entry this island pushes records that). */
+    const fromMenu =
+      (window.history.state as SettingsHistoryState | null)?.enteiFromMenu ===
+      true;
+
+    // Mobile drill-down, deepest level: inside a module's own settings page
+    // (e.g. /settings/?group=module&item=yomitan) → back to the Modules grid.
+    // REPLACE so the grid takes this pane's slot and inherits its parent —
+    // otherwise the grid's own "←" would step back into this pane.
+    if (selection.group === 'module' && selection.item !== null) {
+      navigate('module', null, { replace: true, fromMenu });
       return;
     }
 
-    // Top-level settings (General, Appearance, Anki, Modules landing):
-    // return to the previous page (Home, Player, etc.) via browser history,
-    // or fall back to Home if directly navigated.
+    // Any other group (General / Appearance / Anki / Modules grid) → back to
+    // the top-level menu list at the bare `/settings/` URL. When the menu is
+    // literally the entry below, step back to it instead of pushing a second
+    // menu entry on top of the pane we are leaving. When arriving via deep link
+    // (fromMenu is false), replace so history.back() from the menu leaves settings.
+    if (selection.group !== null) {
+      if (fromMenu) {
+        window.history.back();
+        return;
+      }
+      navigate(null, null, { replace: true });
+      return;
+    }
+
+    // Already on the top-level menu: leave the settings page (browser history,
+    // falling back to Home when the page was opened directly).
     if (typeof window !== 'undefined') {
       if (
         window.history.length > 1 &&
