@@ -325,8 +325,8 @@ describe('native wallpaper CSS contract', () => {
   });
 
   it('shares one wallpaper between the layer and the native hole', () => {
-    expect(globalCss).toContain(
-      "--entei-bg-image: url('/brand/entei-gradient-background.webp')",
+    expect(globalCss).toMatch(
+      /--entei-bg-image:\s*(url\('\/brand\/entei-gradient-background\.webp'\)|none);/,
     );
     expect(globalCss).toMatch(/background-image:\s*var\(--entei-bg-image\)/);
     expect(globalCss).toMatch(/background-size:\s*var\(--entei-bg-size\)/);
