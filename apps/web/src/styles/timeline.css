@@ -697,6 +697,18 @@
  * the thread header sheds the mobile cards so it reads as a light icon + label
  * row pinned to the reading column. The grid itself never changes. */
 @media (min-width: 768px) {
+  /* Desktop padding: transfer the 24px inline padding from the outer
+     container down to each individual row. This lets the card hover highlight
+     and dividers span the full 42rem column width while keeping content neatly indented. */
+  .entei-timeline-composer,
+  .entei-timeline-post,
+  .entei-timeline-detail-head,
+  .entei-timeline-detail-post,
+  .entei-timeline-reply,
+  .entei-timeline-comment {
+    padding-inline: var(--entei-space-24);
+  }
+
   .entei-timeline-post-actions {
     gap: var(--entei-space-8);
   }
