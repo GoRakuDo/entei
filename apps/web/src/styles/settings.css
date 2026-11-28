@@ -478,7 +478,7 @@ body[data-page='settings'] .entei-main {
   display: grid;
   grid-template-columns: 1fr;
   align-items: center;
-  gap: var(--entei-space-8);
+  gap: var(--entei-space-16);
   min-height: var(--entei-touch-min);
 }
 
@@ -522,9 +522,15 @@ body[data-page='settings'] .entei-main {
 }
 
 /* Switch rows keep the toggle on the row's trailing edge instead of under
-   the label (the label itself is clickable via htmlFor). */
+   the label (the label itself is clickable via htmlFor). Stays side-by-side
+   even on narrow mobile screens. */
+.entei-module-field--switch {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
 .entei-module-field--switch .entei-module-field-control {
-  justify-content: flex-start;
+  justify-content: flex-end;
 }
 
 .entei-module-input,
@@ -2408,3 +2414,24 @@ body[data-page='settings'] .entei-main {
   font-size: 0.875rem;
   line-height: 1.25;
 }
+
+/* Mobile responsive adjustments for Anki Field Profiles (placed AFTER base definitions to win cascade) */
+@media (max-width: 767px) {
+  /* Toolbar buttons stretch full width on mobile */
+  .entei-anki-profiles-toolbar .entei-action-btn {
+    width: 100%;
+  }
+
+  /* Fit field/value grid inside narrow mobile cards without overflow */
+  .entei-anki-profile-fields-header,
+  .entei-anki-profile-field-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  }
+
+  .entei-anki-marker-combobox {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+}
+
