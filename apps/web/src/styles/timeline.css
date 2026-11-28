@@ -517,12 +517,6 @@
   gap: var(--entei-space-4);
 }
 
-.entei-timeline-post > .entei-timeline-post-actions {
-  padding-inline-start: calc(
-    var(--entei-timeline-avatar-column) + var(--entei-timeline-row-gap)
-  );
-}
-
 .entei-timeline-action {
   display: inline-flex;
   align-items: center;
@@ -530,8 +524,7 @@
   gap: var(--entei-space-8);
   /* Compact 36px pill, matching the Publish button height. */
   min-height: 2.25rem;
-  /* Generous, symmetric padding inside a fully rounded pill — the previous
-     squarish radius-md box with 8px/4px inline padding looked cramped. */
+  /* Symmetric 12px inline padding (DESIGN.md §8.1 25% gap rule with 0.875rem font). */
   padding: 0 var(--entei-space-12);
   border: none;
   border-radius: var(--entei-radius-pill);
@@ -544,12 +537,10 @@
     color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
-@media (max-width: 380px) {
-  /* Narrow mobile viewports (e.g. 360dp devices): slim the action pills slightly
-     so the three actions fit within the remaining column without overflowing. */
-  .entei-timeline-action {
-    padding-inline: var(--entei-space-8);
-  }
+.entei-timeline-action svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
 }
 
 .entei-timeline-action:hover {
