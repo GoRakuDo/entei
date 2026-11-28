@@ -133,19 +133,41 @@ describe('Settings mobile drill-down — Modul accordion', () => {
     );
   });
 
-  it('mobile menu sets gap to 24px and nav item background to --entei-surface', () => {
+  it('mobile menu sets gap to 16px and nav item background to --entei-surface with border', () => {
     const mobile = mobileBlockContaining(
       settingsCss,
       ".entei-settings-shell[data-depth='menu']",
     );
     expect(mobile).toMatch(
-      /\.entei-settings-nav\s*\{[^}]*gap:\s*var\(--entei-space-24\)/,
+      /\.entei-settings-nav\s*\{[^}]*gap:\s*var\(--entei-space-16\)/,
+    );
+    expect(mobile).toMatch(
+      /\.entei-settings-nav-group\s*\{[^}]*gap:\s*var\(--entei-space-16\)/,
+    );
+    expect(mobile).toMatch(
+      /\.entei-settings-nav-children\s*\{[^}]*gap:\s*var\(--entei-space-16\)/,
     );
     expect(mobile).toMatch(
       /\.entei-settings-nav-item\s*\{[^}]*background-color:\s*var\(--entei-surface\)/,
     );
     expect(mobile).toMatch(
+      /\.entei-settings-nav-item\s*\{[^}]*border:\s*1px solid oklch\(100% 0 0deg \/ 0\.08\)/,
+    );
+    expect(mobile).toMatch(
       /\.entei-settings-shell\[data-depth='menu'\]\s*\.entei-settings-nav-item\[aria-current='page'\]\s*\{[^}]*background-color:\s*var\(--entei-surface\)/,
+    );
+  });
+
+  it('desktop stylesheet keeps base rules intact with zero regressions', () => {
+    // Base nav item remains transparent pill with no border
+    expect(settingsCss).toMatch(
+      /\.entei-settings-nav-item\s*\{[^}]*border:\s*none;/,
+    );
+    expect(settingsCss).toMatch(
+      /\.entei-settings-nav-item\s*\{[^}]*background:\s*none;/,
+    );
+    expect(settingsCss).toMatch(
+      /\.entei-settings-nav\s*\{[^}]*gap:\s*var\(--entei-space-8\);/,
     );
   });
 });
