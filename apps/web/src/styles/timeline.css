@@ -32,7 +32,7 @@
 .entei-timeline-root {
   /* The two tracks shared by every row below. Declared once here so the avatar
      column can never drift between composer, feed and thread. */
-  --entei-timeline-avatar-column: var(--entei-touch-min);
+  --entei-timeline-avatar-column: 2.25rem; /* 36px */
   --entei-timeline-row-gap: var(--entei-space-12);
 
   grid-column: 1 / -1;
@@ -638,7 +638,7 @@
 /* Focused parent post: the same grid as every reply below it. */
 .entei-timeline-detail-post {
   align-items: start;
-  padding-block: var(--entei-space-16);
+  padding-block: var(--entei-space-12);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 
@@ -655,8 +655,8 @@
 
 .entei-timeline-reply {
   align-items: start;
-  padding-block: var(--entei-space-16);
-  border-bottom: 1px solid oklch(1 0 0 / 0.1);
+  padding-block: var(--entei-space-24);
+  border-bottom: none;
 }
 
 /* ===== COMMENTS THREAD ===== */
