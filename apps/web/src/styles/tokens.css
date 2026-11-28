@@ -30,10 +30,11 @@
   --entei-surface-elevated: oklch(30.96% 0.15 271.29deg);
 
   /* --- 2. Typography (文字テキスト) --- */
-  /* Strong text and prominent headings. */
+  /* Strong white — reserved for prominent headings and emphasized titles only. */
   --entei-text-primary: oklch(95% 0.005 285deg);
-  /* Secondary text & icons — off-white so sidebar/drawer labels read as
-     neutral body text; purple stays reserved for accent-only use. */
+  /* Off-white — base / normal text color for the whole application so body
+     text is gentle on the eyes; primary stays reserved for strong headings
+     and emphasized titles. */
   --entei-text-secondary: oklch(85.99% 0.071 282.16deg);
   /* Footer, supplementary text. */
   --entei-text-muted: oklch(70% 0.01 270deg);
@@ -59,7 +60,10 @@
   --entei-purple-400: var(--entei-accent-hover);
   --entei-white-base: var(--entei-text-primary);
   --entei-black-950: var(--entei-bg);
-  --entei-text: var(--entei-text-primary);
+  /* Base / normal text color for the whole application — off-white so body
+     text is gentle on the eyes; primary text stays reserved for strong
+     headings and emphasized titles. */
+  --entei-text: var(--entei-text-secondary);
   --entei-accent: var(--entei-accent-primary);
   --entei-accent-light: var(--entei-accent-hover);
   --entei-purple-500: var(--entei-accent-primary);

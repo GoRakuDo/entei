@@ -15,7 +15,7 @@
 @theme {
   --color-background: var(--entei-bg);
   --color-foreground: var(--entei-text);
-  --color-muted: var(--entei-text-secondary);
+  --color-muted: var(--entei-text-muted);
   --color-muted-foreground: var(--entei-text-muted);
   --color-accent: var(--entei-accent);
   --color-accent-hover: var(--entei-accent-hover);
@@ -25,9 +25,9 @@
   --color-ring: var(--entei-focus-ring);
   --color-input: oklch(100% 0 0deg / 0.08);
   --color-primary: var(--entei-accent);
-  --color-primary-foreground: var(--entei-text);
+  --color-primary-foreground: var(--entei-text-primary);
   --color-destructive: oklch(55% 0.2 25deg);
-  --color-destructive-foreground: var(--entei-text);
+  --color-destructive-foreground: var(--entei-text-primary);
 
   --radius-sm: var(--entei-radius-sm);
   --radius-md: var(--entei-radius-md);

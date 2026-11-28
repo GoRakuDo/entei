@@ -2096,7 +2096,7 @@ body[data-page='settings'] .entei-main {
   padding: var(--entei-space-12);
   border: none;
   background-color: transparent;
-  color: var(--entei-text-primary);
+  color: var(--entei-text);
   font-family: ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas',
     var(--entei-font-system), monospace;
   font-size: 0.8125rem;
@@ -2142,7 +2142,7 @@ body[data-page='settings'] .entei-main {
   padding: var(--entei-space-12) var(--entei-space-24);
   border: none;
   background: none;
-  color: var(--entei-text-primary);
+  color: var(--entei-text);
   cursor: pointer;
   text-align: left;
 }
