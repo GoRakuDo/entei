@@ -1754,7 +1754,7 @@ body[data-page='settings'] .entei-main {
 
   .entei-settings-mobile-header {
     margin: 0;
-    padding: 0 var(--entei-gutter);
+    padding: var(--entei-space-16) var(--entei-gutter) 0;
   }
 
   .entei-settings-content {
