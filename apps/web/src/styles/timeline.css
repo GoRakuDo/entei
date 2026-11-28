@@ -720,11 +720,11 @@
   }
 
   /* The page's TopBar owns the top edge on desktop, so the thread header only
-     needs its own 8px breathing room instead of the mobile top-bar height. */
+     needs its own breathing room instead of the mobile top-bar height. */
   .entei-timeline-detail-head {
     z-index: var(--entei-z-content);
     min-height: 0;
-    padding-block: var(--entei-space-8);
+    padding-block: var(--entei-space-12);
     background: transparent;
   }
 
