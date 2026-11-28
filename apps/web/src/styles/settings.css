@@ -1724,8 +1724,19 @@ body[data-page='settings'] .entei-main {
 
   /* The left nav IS the mobile menu / submenu list. */
   .entei-settings-nav {
+    gap: var(--entei-space-24);
     padding: var(--entei-space-16) var(--entei-gutter)
       calc(var(--entei-space-32) + var(--entei-dock-height));
+  }
+
+  /* Mobile menu item buttons: filled with --entei-surface background. */
+  .entei-settings-nav-item {
+    background-color: var(--entei-surface);
+  }
+
+  .entei-settings-nav-item:hover {
+    background-color: var(--entei-surface);
+    color: var(--entei-text-secondary);
   }
 
   /* On mobile the children expand INLINE under the Modul row (the nav is the
@@ -1742,7 +1753,7 @@ body[data-page='settings'] .entei-main {
   .entei-settings-shell[data-depth='menu']
     .entei-settings-nav-item[aria-current='page'] {
     color: var(--entei-text-secondary);
-    background-color: transparent;
+    background-color: var(--entei-surface);
   }
 
   /* Menu (nav) is hidden once a group is selected; detail is hidden at the

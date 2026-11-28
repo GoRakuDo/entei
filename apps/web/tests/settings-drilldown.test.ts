@@ -132,4 +132,20 @@ describe('Settings mobile drill-down — Modul accordion', () => {
       ".entei-settings-shell[data-depth='detail'] .entei-settings-nav",
     );
   });
+
+  it('mobile menu sets gap to 24px and nav item background to --entei-surface', () => {
+    const mobile = mobileBlockContaining(
+      settingsCss,
+      ".entei-settings-shell[data-depth='menu']",
+    );
+    expect(mobile).toMatch(
+      /\.entei-settings-nav\s*\{[^}]*gap:\s*var\(--entei-space-24\)/,
+    );
+    expect(mobile).toMatch(
+      /\.entei-settings-nav-item\s*\{[^}]*background-color:\s*var\(--entei-surface\)/,
+    );
+    expect(mobile).toMatch(
+      /\.entei-settings-shell\[data-depth='menu'\]\s*\.entei-settings-nav-item\[aria-current='page'\]\s*\{[^}]*background-color:\s*var\(--entei-surface\)/,
+    );
+  });
 });
